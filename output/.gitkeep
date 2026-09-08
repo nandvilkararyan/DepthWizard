@@ -1,0 +1,2 @@
+# This file keeps the output/ directory in git.
+# Generated files (PNGs, TIFFs, JSONs) are excluded via .gitignore.

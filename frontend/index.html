@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DepthWizard — 2D Satellite → 3D Terrain</title>
+  <meta name="description" content="Convert any satellite image into an interactive 3D terrain model with flythrough camera. Powered by Depth Anything V2." />
+  <!-- Import map: resolves bare module specifiers for Three.js -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+      "three/examples/jsm/controls/OrbitControls.js": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/controls/OrbitControls.js"
+    }
+  }
+  </script>
+  <link rel="stylesheet" href="/app/style.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── Header ─────────────────────────────────────────────── -->
+  <header class="site-header">
+    <div class="logo">
+      <div class="logo-icon">🌍</div>
+      <div>
+        <div class="logo-text">DepthWizard</div>
+        <div class="logo-sub">Satellite → 3D Terrain</div>
+      </div>
+    </div>
+    <div class="header-badge">Hackathon MVP</div>
+  </header>
+
+  <!-- ── Upload Section ─────────────────────────────────────── -->
+  <section class="section-hero" id="upload-section">
+    <h1 class="hero-title">From Satellite to<br/>3D Terrain — Instantly</h1>
+    <p class="hero-subtitle">
+      Upload any satellite or aerial image and watch it transform into a
+      fully navigable 3D terrain with AI-predicted elevation.
+    </p>
+
+    <div class="upload-card">
+      <!-- Dropzone -->
+      <div class="dropzone" id="dropzone">
+        <div class="dropzone-icon">🛰️</div>
+        <div class="dropzone-title">Drop your satellite image here</div>
+        <div class="dropzone-sub">PNG, JPG, TIFF · up to 50 MB</div>
+        <input type="file" id="file-input" accept=".png,.jpg,.jpeg,.tif,.tiff" />
+      </div>
+
+      <!-- Selected file feedback -->
+      <div class="file-selected-info" id="file-info">
+        <span>✓</span>
+        <span id="file-name-display">image.png</span>
+      </div>
+
+      <!-- Advanced options -->
+      <div class="adv-toggle" id="adv-toggle">
+        <span id="adv-arrow">▸</span> Advanced Options
+      </div>
+      <div class="adv-panel" id="adv-panel">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="min-alt">Min Elevation (m)</label>
+            <input type="number" id="min-alt" value="0" step="10" />
+          </div>
+          <div class="form-group">
+            <label for="max-alt">Max Elevation (m)</label>
+            <input type="number" id="max-alt" value="500" step="10" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="tile-size">Tile Size (px)</label>
+            <input type="number" id="tile-size" value="512" step="64" />
+          </div>
+          <div class="form-group">
+            <label for="overlap">Overlap Ratio</label>
+            <input type="number" id="overlap" value="0.20" step="0.05" min="0" max="0.5" />
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="process-btn" disabled>
+        ⚡ Generate 3D Terrain
+      </button>
+
+      <button class="btn-demo" id="demo-btn">
+        🏔️ Load Demo Scene (Grand Canyon Sample)
+      </button>
+    </div>
+  </section>
+
+  <!-- ── Processing State ───────────────────────────────────── -->
+  <section id="processing-section">
+    <div class="spinner-ring"></div>
+    <div class="processing-title">Building your 3D terrain…</div>
+    <div class="processing-sub">Depth Anything V2 is analysing your image</div>
+
+    <div class="progress-steps">
+      <div class="step-item active" id="step-1">
+        <div class="step-dot"></div> Extracting depth with AI model
+      </div>
+      <div class="step-item" id="step-2">
+        <div class="step-dot"></div> Calibrating metric elevation
+      </div>
+      <div class="step-item" id="step-3">
+        <div class="step-dot"></div> Generating 3D terrain assets
+      </div>
+      <div class="step-item" id="step-4">
+        <div class="step-dot"></div> Rendering scene
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Results Section ────────────────────────────────────── -->
+  <section id="results-section">
+
+    <!-- Header row -->
+    <div class="results-header">
+      <div class="results-title">✅ Terrain Generated</div>
+      <div class="results-actions">
+        <button class="btn-sm" id="new-image-btn">↩ New Image</button>
+        <a class="btn-sm" id="dl-heightmap" href="#" download>⬇ Heightmap</a>
+        <a class="btn-sm" id="dl-geotiff" href="#" download>⬇ GeoTIFF</a>
+        <a class="btn-sm" id="dl-meta" href="#" download>⬇ Metadata</a>
+      </div>
+    </div>
+
+    <!-- 2D preview grid -->
+    <div class="preview-grid">
+      <div class="preview-card">
+        <img id="preview-optical" src="" alt="Optical texture" />
+        <div class="preview-label">📷 Original Satellite Image</div>
+      </div>
+      <div class="preview-card">
+        <img id="preview-depth" src="" alt="Depth map" />
+        <div class="preview-label">🌡️ AI Depth Map (Turbo colormap)</div>
+      </div>
+    </div>
+
+    <!-- Metadata cards -->
+    <div class="meta-grid">
+      <div class="meta-card">
+        <div class="meta-label">Min Elevation</div>
+        <div class="meta-value" id="meta-min">—</div>
+        <div class="meta-unit">meters</div>
+      </div>
+      <div class="meta-card">
+        <div class="meta-label">Max Elevation</div>
+        <div class="meta-value" id="meta-max">—</div>
+        <div class="meta-unit">meters</div>
+      </div>
+      <div class="meta-card">
+        <div class="meta-label">Elevation Range</div>
+        <div class="meta-value" id="meta-range">—</div>
+        <div class="meta-unit">meters</div>
+      </div>
+      <div class="meta-card">
+        <div class="meta-label">Calibration</div>
+        <div class="meta-value" id="meta-calib-badge">—</div>
+        <div class="meta-unit" id="meta-rmse"></div>
+      </div>
+      <div class="meta-card">
+        <div class="meta-label">Image Size</div>
+        <div class="meta-value" id="meta-size">—</div>
+        <div class="meta-unit">pixels</div>
+      </div>
+      <div class="meta-card">
+        <div class="meta-label">Georeferenced</div>
+        <div class="meta-value" id="meta-geo">—</div>
+        <div class="meta-unit" id="meta-crs"></div>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- 3D Viewer -->
+    <div class="viewer-section">
+      <div class="viewer-header">
+        <div class="viewer-title">
+          <div class="live-dot"></div>
+          3D Terrain Viewer
+        </div>
+        <div class="viewer-controls">
+          <button class="btn-sm" id="fly-toggle-btn">⏸ Pause Flythrough</button>
+          <button class="btn-sm" id="reset-cam-btn">🎯 Reset Camera</button>
+        </div>
+      </div>
+
+      <!-- Canvas -->
+      <div id="viewer-canvas-wrap">
+        <canvas id="threejs-canvas"></canvas>
+        <div class="viewer-overlay-info">
+          🖱 Click &amp; drag to orbit manually
+        </div>
+        <div class="viewer-mode-badge" id="mode-badge">✈ Flythrough</div>
+      </div>
+
+      <!-- Terrain control sliders -->
+      <div class="terrain-sliders">
+        <div class="slider-group">
+          <div class="slider-label">
+            <span>Elevation Scale</span>
+            <span id="elev-val">1.5×</span>
+          </div>
+          <input type="range" id="elev-slider" min="0.2" max="4" step="0.1" value="1.5" />
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">
+            <span>Fly Speed</span>
+            <span id="speed-val">0.10</span>
+          </div>
+          <input type="range" id="speed-slider" min="0.02" max="0.4" step="0.01" value="0.10" />
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">
+            <span>Sun Angle</span>
+            <span id="sun-val">45°</span>
+          </div>
+          <input type="range" id="sun-slider" min="0" max="360" step="5" value="45" />
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+</div><!-- /#app -->
+
+<!-- Error toast -->
+<div class="error-toast" id="error-toast"></div>
+
+<!-- ── Scripts ─────────────────────────────────────────────── -->
+<script type="module">
+import {
+  initViewer,
+  loadTerrain,
+  loadTerrainHeightOnly,
+  toggleFlythrough,
+  setFlythrough,
+  resetCamera,
+  setElevationScale,
+  setFlySpeed,
+  setSunAngle,
+} from '/app/viewer.js';
+
+/* ─── DOM refs ─────────────────────────────────────────────── */
+const dropzone       = document.getElementById('dropzone');
+const fileInput      = document.getElementById('file-input');
+const fileInfo       = document.getElementById('file-info');
+const fileNameDisplay= document.getElementById('file-name-display');
+const processBtn     = document.getElementById('process-btn');
+const demoBtn        = document.getElementById('demo-btn');
+const newImageBtn    = document.getElementById('new-image-btn');
+const advToggle      = document.getElementById('adv-toggle');
+const advPanel       = document.getElementById('adv-panel');
+const advArrow       = document.getElementById('adv-arrow');
+const uploadSection  = document.getElementById('upload-section');
+const processingSection = document.getElementById('processing-section');
+const resultsSection = document.getElementById('results-section');
+const errorToast     = document.getElementById('error-toast');
+const modeBadge      = document.getElementById('mode-badge');
+const flyToggleBtn   = document.getElementById('fly-toggle-btn');
+const resetCamBtn    = document.getElementById('reset-cam-btn');
+
+// Sliders
+const elevSlider = document.getElementById('elev-slider');
+const speedSlider= document.getElementById('speed-slider');
+const sunSlider  = document.getElementById('sun-slider');
+const elevVal    = document.getElementById('elev-val');
+const speedVal   = document.getElementById('speed-val');
+const sunVal     = document.getElementById('sun-val');
+
+/* ─── State ────────────────────────────────────────────────── */
+const API_BASE = ''; // same origin
+let viewerInited = false;
+let selectedFile = null;
+let lastResult = null;
+
+/* ─── Init Three.js immediately ─────────────────────────────── */
+const canvas = document.getElementById('threejs-canvas');
+initViewer(canvas);
+viewerInited = true;
+
+/* ─── Step indicator helper ─────────────────────────────────── */
+let stepTimer = null;
+function animateSteps() {
+  const steps = [1, 2, 3, 4];
+  let i = 0;
+  // reset
+  steps.forEach(n => {
+    const el = document.getElementById(`step-${n}`);
+    el.classList.remove('active','done');
+  });
+  stepTimer = setInterval(() => {
+    if (i > 0) {
+      document.getElementById(`step-${steps[i-1]}`).classList.replace('active','done');
+    }
+    if (i < steps.length) {
+      document.getElementById(`step-${steps[i]}`).classList.add('active');
+      i++;
+    } else {
+      clearInterval(stepTimer);
+    }
+  }, 1400);
+}
+
+function clearStepTimer() { if (stepTimer) clearInterval(stepTimer); }
+
+/* ─── UI state transitions ───────────────────────────────────── */
+function showUpload()     { uploadSection.style.display=''; processingSection.classList.remove('visible'); resultsSection.classList.remove('visible'); }
+function showProcessing() { uploadSection.style.display='none'; processingSection.classList.add('visible'); resultsSection.classList.remove('visible'); animateSteps(); }
+function showResults()    { processingSection.classList.remove('visible'); clearStepTimer(); resultsSection.classList.add('visible'); }
+
+function showError(msg) {
+  errorToast.textContent = '⚠ ' + msg;
+  errorToast.classList.add('visible');
+  setTimeout(() => errorToast.classList.remove('visible'), 6000);
+}
+
+/* ─── File input ─────────────────────────────────────────────── */
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) {
+    selectedFile = fileInput.files[0];
+    fileNameDisplay.textContent = selectedFile.name;
+    fileInfo.classList.add('visible');
+    processBtn.disabled = false;
+  }
+});
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) {
+    selectedFile = f;
+    fileNameDisplay.textContent = f.name;
+    fileInfo.classList.add('visible');
+    processBtn.disabled = false;
+  }
+});
+
+/* ─── Advanced toggle ─────────────────────────────────────────── */
+advToggle.addEventListener('click', () => {
+  const open = advPanel.classList.toggle('open');
+  advArrow.textContent = open ? '▾' : '▸';
+});
+
+/* ─── Process button ─────────────────────────────────────────── */
+processBtn.addEventListener('click', () => processImage(selectedFile));
+
+/* ─── New Image ──────────────────────────────────────────────── */
+newImageBtn.addEventListener('click', () => {
+  selectedFile = null;
+  fileInput.value = '';
+  fileInfo.classList.remove('visible');
+  processBtn.disabled = true;
+  showUpload();
+});
+
+/* ─── Demo button ────────────────────────────────────────────── */
+demoBtn.addEventListener('click', async () => {
+  // Load the pre-existing output files directly
+  // These are the files that live in /output/  and were generated from
+  // the test_pipeline run. We re-use their download URLs directly.
+  showProcessing();
+  await _sleep(2200);  // simulate pipeline feel
+
+  // Build a synthetic result from the known output files
+  const demoResult = {
+    task_id: 'demo',
+    status: 'success',
+    metadata: {
+      scene_geometry: { width_pixels: 256, height_pixels: 256, aspect_ratio: 1.0 },
+      elevation_metrics: { min_elevation_meters: 0, max_elevation_meters: 500, elevation_range_meters: 500 },
+      calibration_parameters: { calibration_type: 'relative_fallback', rmse_meters: null, mae_meters: null },
+      geospatial_metadata: { is_georeferenced: false, crs: null }
+    },
+    download_urls: {
+      heightmap_8bit_preview_png: '/files/dsm_aab93e316f_heightmap_unity16.png',
+      depth_colorized_png:        '/files/test_rgb_side_by_side_preview.png',
+      optical_texture_png:        '/files/dsm_aab93e316f_optical_texture.png',
+      heightmap_16bit_png:        '/files/dsm_aab93e316f_heightmap_unity16.png',
+      geotiff_dsm_32bit:          '/files/dsm_aab93e316f_dsm_metric.tif',
+      calibration_metadata_json:  '/files/dsm_aab93e316f_metadata.json',
+    }
+  };
+
+  await displayResults(demoResult);
+});
+
+/* ─── Core: POST /process ────────────────────────────────────── */
+async function processImage(file) {
+  if (!file) return;
+  showProcessing();
+
+  const form = new FormData();
+  form.append('file', file);
+  form.append('min_alt', document.getElementById('min-alt').value);
+  form.append('max_alt', document.getElementById('max-alt').value);
+  form.append('tile_size', document.getElementById('tile-size').value);
+  form.append('overlap_ratio', document.getElementById('overlap').value);
+
+  try {
+    const res = await fetch(`${API_BASE}/process`, { method: 'POST', body: form });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    await displayResults(data);
+  } catch (e) {
+    clearStepTimer();
+    showUpload();
+    showError(e.message);
+  }
+}
+
+/* ─── Display results + load 3D terrain ─────────────────────── */
+async function displayResults(data) {
+  lastResult = data;
+  const urls = data.download_urls;
+  const meta = data.metadata;
+
+  // 2D previews
+  document.getElementById('preview-optical').src = urls.optical_texture_png;
+  document.getElementById('preview-depth').src   = urls.depth_colorized_png;
+
+  // Metadata cards
+  const em = meta.elevation_metrics;
+  document.getElementById('meta-min').textContent   = em.min_elevation_meters.toFixed(1);
+  document.getElementById('meta-max').textContent   = em.max_elevation_meters.toFixed(1);
+  document.getElementById('meta-range').textContent = em.elevation_range_meters.toFixed(1);
+
+  const cp = meta.calibration_parameters;
+  const calibBadge = document.getElementById('meta-calib-badge');
+  calibBadge.innerHTML = '';
+  const badge = document.createElement('span');
+  badge.className = cp.calibration_type === 'reference_dem' ? 'meta-badge badge-green' : 'meta-badge badge-amber';
+  badge.textContent = cp.calibration_type === 'reference_dem' ? 'DEM Calibrated' : 'Relative Mode';
+  calibBadge.appendChild(badge);
+  document.getElementById('meta-rmse').textContent = cp.rmse_meters != null ? `RMSE ${cp.rmse_meters.toFixed(2)} m` : '';
+
+  const sg = meta.scene_geometry;
+  document.getElementById('meta-size').textContent = `${sg.width_pixels} × ${sg.height_pixels}`;
+
+  const gm = meta.geospatial_metadata;
+  const geoEl = document.getElementById('meta-geo');
+  geoEl.innerHTML = '';
+  const geoBadge = document.createElement('span');
+  geoBadge.className = gm.is_georeferenced ? 'meta-badge badge-green' : 'meta-badge badge-amber';
+  geoBadge.textContent = gm.is_georeferenced ? 'Yes' : 'No';
+  geoEl.appendChild(geoBadge);
+  document.getElementById('meta-crs').textContent = gm.crs || '';
+
+  // Download links
+  document.getElementById('dl-heightmap').href = urls.heightmap_16bit_png;
+  document.getElementById('dl-geotiff').href   = urls.geotiff_dsm_32bit;
+  document.getElementById('dl-meta').href      = urls.calibration_metadata_json;
+
+  // Show results panel first
+  showResults();
+  // Give the DOM a frame to paint before heavy Three.js load
+  await _sleep(80);
+
+  // Load 3D terrain
+  try {
+    await loadTerrain(urls.heightmap_8bit_preview_png, urls.optical_texture_png, meta);
+  } catch (e) {
+    // Fallback: height-only (no texture)
+    try {
+      await loadTerrainHeightOnly(urls.heightmap_8bit_preview_png, meta);
+    } catch (e2) {
+      showError('3D viewer failed to load. Try a different image.');
+    }
+  }
+
+  // Scroll to viewer
+  document.getElementById('viewer-canvas-wrap').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+/* ─── Flythrough / camera controls ──────────────────────────── */
+flyToggleBtn.addEventListener('click', () => {
+  const flying = toggleFlythrough();
+  flyToggleBtn.textContent = flying ? '⏸ Pause Flythrough' : '▶ Resume Flythrough';
+  modeBadge.textContent    = flying ? '✈ Flythrough' : '🖱 Orbit Mode';
+});
+
+resetCamBtn.addEventListener('click', () => {
+  resetCamera();
+  flyToggleBtn.textContent = '⏸ Pause Flythrough';
+  modeBadge.textContent    = '✈ Flythrough';
+});
+
+// Orbit mode triggered by user mouse click inside canvas
+document.addEventListener('dw:orbitMode', () => {
+  flyToggleBtn.textContent = '▶ Resume Flythrough';
+  modeBadge.textContent    = '🖱 Orbit Mode';
+});
+
+/* ─── Sliders ────────────────────────────────────────────────── */
+elevSlider.addEventListener('input', () => {
+  const v = parseFloat(elevSlider.value);
+  elevVal.textContent = v.toFixed(1) + '×';
+  setElevationScale(v);
+});
+
+speedSlider.addEventListener('input', () => {
+  const v = parseFloat(speedSlider.value);
+  speedVal.textContent = v.toFixed(2);
+  setFlySpeed(v);
+});
+
+sunSlider.addEventListener('input', () => {
+  const v = parseInt(sunSlider.value);
+  sunVal.textContent = v + '°';
+  setSunAngle(v);
+});
+
+/* ─── Utility ────────────────────────────────────────────────── */
+function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+</script>
+
+</body>
+</html>

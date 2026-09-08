@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.spec
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# PyTorch / HuggingFace model cache
+*.pt
+*.pth
+*.bin
+*.safetensors
+.cache/
+~/.cache/huggingface/
+
+# DepthWizard output artifacts (generated, not committed)
+output/uploads/
+output/*.tif
+output/*.png
+output/*.json
+output/test_scratch/
+
+# Keep the output directory itself
+!output/.gitkeep
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Node (if any tooling is added)
+node_modules/
+package-lock.json
+
+# Unity generated files
+unity/Library/
+unity/Temp/
+unity/Logs/
+unity/obj/
+unity/Build/
+unity/UserSettings/
+unity/*.csproj
+unity/*.sln
+unity/.vs/
