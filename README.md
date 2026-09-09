@@ -134,7 +134,7 @@ High-resolution 3D terrain models are critical for disaster management, urban pl
 | Styling | **Vanilla CSS** | — | Glassmorphism dark-mode UI |
 | Typography | **Google Fonts** (Inter, Outfit) | — | Premium sans-serif typography |
 
-### Unity Integration (Optional)
+### Unity Integration (Optional — WebGL builds run inside the browser)
 | Component | Technology | Purpose |
 |---|---|---|
 | Render Pipeline | **Unity URP** | Physically-based rendering |
@@ -142,6 +142,7 @@ High-resolution 3D terrain models are critical for disaster management, urban pl
 | GIS Camera | `FlyCameraController.cs` | WASD + RMB free-fly with terrain clearance |
 | Shader | `HeightDisplacement.hlsl` | Custom vertex displacement shader |
 | One-Click Setup | `SetupDepthWizardScene.cs` | Editor utility to scaffold full scene |
+| **WebGL Bridge** | `WebGLBridge.cs` + `DepthWizardBridge.jslib` | **postMessage bridge — lets the browser page send terrain data into a Unity WebGL iframe** |
 
 ---
 
@@ -162,20 +163,27 @@ depthwizard/
 │       └── image_io.py             # Rasterio + OpenCV I/O helpers, GeoMetadata
 │
 ├── frontend/                       # Browser-based 3D viewer (served by FastAPI)
-│   ├── index.html                  # Single-page app (upload → results → 3D)
+│   ├── index.html                  # Single-page app (Unity iframe primary / Three.js fallback)
 │   ├── style.css                   # Dark glassmorphism UI
 │   └── viewer.js                   # Three.js terrain viewer ES module
 │
-├── unity/                          # Optional Unity URP integration
+├── unity/                          # Unity URP integration (compile to unity-build/ for WebGL)
 │   ├── Scripts/
-│   │   ├── AppManager.cs           # HTTP pipeline integration, texture loader
+│   │   ├── AppManager.cs           # HTTP pipeline integration + LoadFromUrls() for WebGL
 │   │   ├── TerrainMeshGenerator.cs # 16-bit heightmap → Unity Mesh
 │   │   ├── FlyCameraController.cs  # GIS free-fly camera (WASD + RMB)
-│   │   └── TerrainInspector.cs     # On-screen elevation stats overlay
+│   │   ├── TerrainInspector.cs     # On-screen elevation stats overlay
+│   │   └── WebGLBridge.cs          # postMessage ↔ C# bridge for WebGL iframe
+│   ├── Plugins/
+│   │   └── WebGL/
+│   │       └── DepthWizardBridge.jslib  # JS side of the WebGL bridge
 │   ├── Editor/
 │   │   └── SetupDepthWizardScene.cs# One-click Unity scene scaffolding
 │   └── Shaders/
 │       └── HeightDisplacement.shader # URP vertex displacement HLSL
+│
+├── unity-build/                    # ⬅ Unity WebGL output (NOT committed, built locally)
+│   └── index.html                  #   Auto-detected by FastAPI → served at /unity-build/*
 │
 ├── output/                         # Generated assets (git-ignored)
 ├── test_pipeline.py                # Full automated test suite
@@ -185,6 +193,58 @@ depthwizard/
 ```
 
 ---
+
+## 🎮 Unity WebGL Build (Optional — Activates Premium 3D Viewer)
+
+The browser frontend automatically detects whether a Unity WebGL build is present.
+- **Build present** → Unity renders the terrain inside an iframe (CPU-baked mesh, URP shading, full FPS camera)
+- **Build absent** → Three.js fallback activates automatically — no action needed
+
+### One-Time Build Steps
+
+> **Requirements:** Unity 2022 LTS or newer with the **WebGL Build Support** module installed.
+
+```
+1. Open Unity Hub → Add → select depthwizard/unity/ as the project folder
+2. Wait for Unity to import assets and compile shaders
+
+3. Menu → DepthWizard → Setup 3D Elevation Scene
+   (This scaffolds the scene hierarchy, wires up AppManager, attaches WebGLBridge)
+
+4. Ensure the "WebGLBridge" GameObject is in the scene with:
+   - WebGLBridge.cs attached
+   - AppManager reference assigned
+
+5. File → Build Settings → switch Platform to WebGL → click "Switch Platform"
+
+6. Player Settings → Publishing Settings:
+   - Compression Format: Disabled  (avoids .br/.gz serving issues on local dev)
+   - Strip Engine Code: Off
+
+7. Click Build → choose output folder:  depthwizard/unity-build/
+   (The folder name must be exactly "unity-build" at the project root)
+
+8. Start the FastAPI server:
+   uvicorn app.main:app --reload
+
+9. Open http://localhost:8000 in your browser
+   → The engine badge in the viewer corner will show "🎮 Unity"
+   → Upload any image to generate terrain
+
+To switch back to Three.js: rename or delete the unity-build/ folder, then refresh.
+```
+
+### Unity Controls (in WebGL mode)
+| Key / Input | Action |
+|---|---|
+| `W / A / S / D` | Fly forward / left / back / right |
+| `E` or `Space` | Ascend |
+| `Q` or `Shift` | Descend |
+| `Right Mouse + Drag` | Look / rotate view |
+| `Scroll Wheel` | Adjust fly speed |
+
+---
+
 
 ## 🚀 Running Locally
 

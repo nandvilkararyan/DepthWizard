@@ -6,7 +6,18 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation
 
-from app.config import DEFAULT_MODEL_ID, get_device
+import sys
+from pathlib import Path
+
+# Bootstrap project root directory into sys.path
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+try:
+    from app.config import DEFAULT_MODEL_ID, get_device
+except ImportError:
+    from config import DEFAULT_MODEL_ID, get_device
 
 
 class DepthExtractor:

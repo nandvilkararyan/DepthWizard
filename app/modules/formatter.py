@@ -7,8 +7,20 @@ import rasterio
 from rasterio.crs import CRS
 from rasterio.transform import Affine
 
-from app.utils.image_io import GeoMetadata
-from app.modules.scale_calibrator import CalibrationResult
+import sys
+from pathlib import Path
+
+# Bootstrap project root directory into sys.path
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+try:
+    from app.utils.image_io import GeoMetadata
+    from app.modules.scale_calibrator import CalibrationResult
+except ImportError:
+    from utils.image_io import GeoMetadata
+    from modules.scale_calibrator import CalibrationResult
 
 
 class OutputFormatter:
@@ -187,6 +199,8 @@ class OutputFormatter:
         height, width = img_shape
         aspect_ratio = float(width) / float(height) if height > 0 else 1.0
 
+        suggested_disp_scale = float(np.clip(0.4 + (calib_result.elevation_range / 300.0) * 0.8, 0.4, 2.2))
+
         metadata = {
             "scene_geometry": {
                 "width_pixels": width,
@@ -196,7 +210,8 @@ class OutputFormatter:
             "elevation_metrics": {
                 "min_elevation_meters": round(calib_result.min_elevation, 4),
                 "max_elevation_meters": round(calib_result.max_elevation, 4),
-                "elevation_range_meters": round(calib_result.elevation_range, 4)
+                "elevation_range_meters": round(calib_result.elevation_range, 4),
+                "suggested_disp_scale": round(suggested_disp_scale, 4)
             },
             "calibration_parameters": {
                 "scale_alpha": float(calib_result.alpha),

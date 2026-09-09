@@ -10,3 +10,7 @@ scipy>=1.10.0
 pillow>=9.5.0
 pydantic>=2.0.0
 python-multipart>=0.0.6
+# Module D — Point cloud & surface mesh
+trimesh>=4.0.0          # required for GLB export (Three.js overlay)
+# open3d>=0.18.0        # optional: high-quality Poisson backend (Python ≤ 3.12 only)
+                        # without open3d, the SciPy Delaunay fallback backend is used

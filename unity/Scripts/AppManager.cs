@@ -62,7 +62,9 @@ namespace DepthWizard.GIS
     public class DownloadUrls
     {
         public string heightmap_16bit_png;
+        public string heightmap_8bit_preview_png;
         public string optical_texture_png;
+        public string depth_colorized_png;
         public string geotiff_dsm_32bit;
         public string calibration_metadata_json;
     }
@@ -113,7 +115,8 @@ namespace DepthWizard.GIS
         }
 
         /// <summary>
-        /// Public entry point to trigger DSM processing pipeline.
+        /// Public entry point to trigger DSM processing pipeline from a local file path.
+        /// Used by the standalone/editor workflow.
         /// </summary>
         public void ProcessImagePipeline(string imagePath, string refDemPath = "")
         {
@@ -127,6 +130,89 @@ namespace DepthWizard.GIS
             referenceDemPath = refDemPath;
 
             StartCoroutine(CoProcessPipeline());
+        }
+
+        /// <summary>
+        /// WebGL entry point: downloads textures directly from HTTP URLs and builds
+        /// the 3D terrain. No local file access is required.
+        /// Called by WebGLBridge.ReceivePayload() after the parent page POSTs to FastAPI.
+        /// </summary>
+        /// <param name="heightmapUrl">Absolute URL to the 16-bit heightmap PNG.</param>
+        /// <param name="textureUrl">Absolute URL to the optical texture PNG.</param>
+        /// <param name="meta">Scene metadata parsed from the FastAPI JSON response.</param>
+        /// <param name="onComplete">Callback invoked when terrain is fully rendered.</param>
+        /// <param name="onError">Callback invoked on failure, receives an error message.</param>
+        public void LoadFromUrls(
+            string heightmapUrl,
+            string textureUrl,
+            SceneMetadata meta,
+            Action onComplete = null,
+            Action<string> onError = null)
+        {
+            if (isProcessing)
+            {
+                Debug.LogWarning("[AppManager] LoadFromUrls called while processing is already active.");
+                return;
+            }
+            StartCoroutine(CoLoadFromUrls(heightmapUrl, textureUrl, meta, onComplete, onError));
+        }
+
+        private IEnumerator CoLoadFromUrls(
+            string heightmapUrl,
+            string textureUrl,
+            SceneMetadata meta,
+            Action onComplete,
+            Action<string> onError)
+        {
+            isProcessing = true;
+            statusMessage = "Downloading terrain assets from server...";
+            Debug.Log($"[AppManager] CoLoadFromUrls — heightmap: {heightmapUrl}");
+
+            Texture2D heightmapTexture = null;
+            Texture2D opticalTexture   = null;
+
+            yield return StartCoroutine(CoDownloadTexture(heightmapUrl, tex => heightmapTexture = tex));
+            yield return StartCoroutine(CoDownloadTexture(textureUrl,   tex => opticalTexture   = tex));
+
+            if (heightmapTexture == null || opticalTexture == null)
+            {
+                string err = "Failed to download one or more terrain textures.";
+                statusMessage = err;
+                Debug.LogError($"[AppManager] {err}");
+                isProcessing = false;
+                onError?.Invoke(err);
+                yield break;
+            }
+
+            float minElev    = meta?.elevation_metrics?.min_elevation_meters  ?? 0f;
+            float maxElev    = meta?.elevation_metrics?.max_elevation_meters   ?? 50f;
+            float heightRange = meta?.elevation_metrics?.elevation_range_meters ?? 50f;
+
+            // Update material
+            if (targetDisplacementMaterial != null)
+            {
+                targetDisplacementMaterial.SetTexture("_MainTex",    opticalTexture);
+                targetDisplacementMaterial.SetTexture("_HeightMap",  heightmapTexture);
+                targetDisplacementMaterial.SetFloat("_HeightScale",  heightRange);
+                targetDisplacementMaterial.SetFloat("_MinElevation", minElev);
+            }
+
+            // Rebuild mesh and bake CPU heights for physics
+            if (meshGenerator != null)
+            {
+                meshGenerator.GenerateGridMesh(
+                    meshGenerator.resolutionX,
+                    meshGenerator.resolutionZ,
+                    meshGenerator.meshSizeX,
+                    meshGenerator.meshSizeZ
+                );
+                meshGenerator.ApplyHeightmapToMesh(heightmapTexture, heightRange, minElev);
+            }
+
+            statusMessage = "WebGL terrain loaded successfully!";
+            Debug.Log($"[AppManager] {statusMessage}");
+            isProcessing = false;
+            onComplete?.Invoke();
         }
 
         private IEnumerator CoProcessPipeline()

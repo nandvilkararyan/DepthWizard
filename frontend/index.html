@@ -4,16 +4,22 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DepthWizard — 2D Satellite → 3D Terrain</title>
-  <meta name="description" content="Convert any satellite image into an interactive 3D terrain model with flythrough camera. Powered by Depth Anything V2." />
-  <!-- Import map: resolves bare module specifiers for Three.js -->
+  <meta name="description" content="Convert any satellite image into an interactive 3D terrain model with flythrough camera and Poisson mesh overlay. Powered by Depth Anything V2 and Open3D." />
+
+  <!-- Import map: resolves bare module specifiers for Three.js (including GLTFLoader) -->
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
-      "three/examples/jsm/controls/OrbitControls.js": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/controls/OrbitControls.js"
+      "three":                                          "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+      "three/examples/jsm/controls/OrbitControls.js":  "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/controls/OrbitControls.js",
+      "three/addons/loaders/GLTFLoader.js":             "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/loaders/GLTFLoader.js"
     }
   }
   </script>
+  <!-- CesiumJS for photorealistic graphics & satellite texturing -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.119/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.119/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
+
   <link rel="stylesheet" href="/app/style.css" />
 </head>
 <body>
@@ -37,7 +43,7 @@
     <h1 class="hero-title">From Satellite to<br/>3D Terrain — Instantly</h1>
     <p class="hero-subtitle">
       Upload any satellite or aerial image and watch it transform into a
-      fully navigable 3D terrain with AI-predicted elevation.
+      fully navigable 3D terrain with AI-predicted elevation and point cloud mesh.
     </p>
 
     <div class="upload-card">
@@ -109,7 +115,7 @@
         <div class="step-dot"></div> Generating 3D terrain assets
       </div>
       <div class="step-item" id="step-4">
-        <div class="step-dot"></div> Rendering scene
+        <div class="step-dot"></div> Building point cloud mesh
       </div>
     </div>
   </section>
@@ -123,8 +129,9 @@
       <div class="results-actions">
         <button class="btn-sm" id="new-image-btn">↩ New Image</button>
         <a class="btn-sm" id="dl-heightmap" href="#" download>⬇ Heightmap</a>
-        <a class="btn-sm" id="dl-geotiff" href="#" download>⬇ GeoTIFF</a>
-        <a class="btn-sm" id="dl-meta" href="#" download>⬇ Metadata</a>
+        <a class="btn-sm" id="dl-geotiff"   href="#" download>⬇ GeoTIFF</a>
+        <a class="btn-sm" id="dl-meta"      href="#" download>⬇ Metadata</a>
+        <a class="btn-sm" id="dl-pointcloud" href="#" download style="display:none">⬇ Point Cloud</a>
       </div>
     </div>
 
@@ -181,24 +188,62 @@
       <div class="viewer-header">
         <div class="viewer-title">
           <div class="live-dot"></div>
-          3D Terrain Viewer
+          3D Model &amp; Terrain Viewer
         </div>
-        <div class="viewer-controls">
+        <div class="viewer-controls" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+          <!-- 1. Engine Selector -->
+          <div class="mode-select-group" id="engine-select-group">
+            <button class="btn-sm active" id="engine-threejs-btn">⬛ Three.js</button>
+            <button class="btn-sm" id="engine-cesium-btn">🌍 CesiumJS Graphics</button>
+          </div>
+
+          <!-- 2. Model View Mode Selector -->
+          <div class="mode-select-group" id="model-mode-group">
+            <button class="btn-sm" id="mode-mesh-only-btn">Only Mesh</button>
+            <button class="btn-sm" id="mode-threejs-only-btn">Only ThreeJS</button>
+            <button class="btn-sm active" id="mode-combined-btn">Mesh + ThreeJS</button>
+          </div>
+
           <button class="btn-sm" id="fly-toggle-btn">⏸ Pause Flythrough</button>
           <button class="btn-sm" id="reset-cam-btn">🎯 Reset Camera</button>
         </div>
       </div>
 
-      <!-- Canvas -->
+      <!-- Canvas wrap — holds Unity iframe, Three.js canvas, OR CesiumJS container -->
       <div id="viewer-canvas-wrap">
+
+        <!-- ① Unity WebGL iframe (shown when unity-build/ exists) -->
+        <iframe
+          id="unity-iframe"
+          src="about:blank"
+          allow="autoplay; fullscreen"
+          style="display:none; width:100%; height:100%; border:none; background:#070b17;"
+          title="DepthWizard Unity 3D Terrain Viewer"
+        ></iframe>
+
+        <!-- ② Three.js canvas (default) -->
         <canvas id="threejs-canvas"></canvas>
-        <div class="viewer-overlay-info">
+
+        <!-- ③ CesiumJS Container (high-graphics photorealistic texturing) -->
+        <div id="cesium-container" style="display:none; width:100%; height:100%; position:relative;"></div>
+
+        <div class="viewer-overlay-info" id="viewer-overlay-info">
           🖱 Click &amp; drag to orbit manually
         </div>
         <div class="viewer-mode-badge" id="mode-badge">✈ Flythrough</div>
+
+        <!-- Engine badge (bottom-right corner) -->
+        <div id="engine-badge" style="
+          position:absolute; bottom:10px; right:12px;
+          background:rgba(0,0,0,0.55); backdrop-filter:blur(6px);
+          color:#aac; font-size:11px; padding:3px 8px; border-radius:20px;
+          font-family:'Inter',sans-serif; letter-spacing:.04em;
+          pointer-events:none; opacity:0; transition:opacity .4s;
+          z-index: 10;
+        ">⬛ Three.js</div>
       </div>
 
-      <!-- Terrain control sliders -->
+      <!-- Terrain control sliders (Three.js only) -->
       <div class="terrain-sliders">
         <div class="slider-group">
           <div class="slider-label">
@@ -222,7 +267,119 @@
           <input type="range" id="sun-slider" min="0" max="360" step="5" value="45" />
         </div>
       </div>
-    </div>
+
+      <!-- ── Mesh Overlay Panel (shown only when GLB is available) ── -->
+      <div class="mesh-overlay-panel" id="mesh-overlay-panel" style="display:none;">
+        <div class="mesh-overlay-header">
+          <span class="mesh-overlay-title">🔺 Point Cloud Mesh Overlay</span>
+          <span class="mesh-overlay-badge" id="mesh-overlay-badge">Poisson Reconstruction</span>
+        </div>
+        <div class="mesh-overlay-controls">
+          <!-- Toggle -->
+          <label class="mesh-toggle-label" for="mesh-visible-toggle">
+            <input type="checkbox" id="mesh-visible-toggle" checked />
+            <span class="mesh-toggle-text">Show Mesh</span>
+          </label>
+          <!-- Wireframe -->
+          <label class="mesh-toggle-label" for="mesh-wireframe-toggle">
+            <input type="checkbox" id="mesh-wireframe-toggle" />
+            <span class="mesh-toggle-text">Wireframe</span>
+          </label>
+          <!-- Opacity -->
+          <div class="slider-group" style="margin-top:6px;">
+            <div class="slider-label">
+              <span>Mesh Opacity</span>
+              <span id="mesh-opacity-val">88%</span>
+            </div>
+            <input type="range" id="mesh-opacity-slider" min="0" max="1" step="0.01" value="0.88" />
+          </div>
+          <!-- Loading indicator -->
+          <div id="mesh-loading-indicator" style="
+            display:none; color:#7ec8e3; font-size:12px; margin-top:8px;
+            display:flex; align-items:center; gap:6px;">
+            <span class="spinner-tiny"></span> Loading mesh…
+          </div>
+        </div>
+      </div>
+
+      <!-- ── CesiumJS Geospatial GIS Panel (shown when Cesium Engine is active) ── -->
+      <div class="cesium-controls-panel" id="cesium-controls-panel" style="display:none;">
+        <div class="cesium-panel-header">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="cesium-panel-icon">🌍</span>
+            <span class="cesium-panel-title">CesiumJS Geospatial GIS Controls</span>
+          </div>
+          <span class="cesium-panel-badge">Satellite Ground Draping &amp; 3D Terrain Analysis</span>
+        </div>
+        <div class="cesium-panel-grid">
+          <!-- Landmark Location Anchor -->
+          <div class="cesium-control-group">
+            <label class="cesium-label" for="cesium-landmark-select">📍 Earth Landmark Anchor</label>
+            <select id="cesium-landmark-select" class="cesium-select">
+              <option value="auto">📍 Georeferenced Coordinates (Auto)</option>
+              <option value="grand_canyon" selected>🏔️ Grand Canyon, Arizona</option>
+              <option value="mount_everest">🏔️ Mount Everest, Himalayas</option>
+              <option value="mount_fuji">🌋 Mount Fuji, Japan</option>
+              <option value="yosemite">🏞️ Yosemite Valley, California</option>
+              <option value="meteor_crater">☄️ Meteor Crater, Arizona</option>
+              <option value="swiss_alps">🏔️ Matterhorn, Swiss Alps</option>
+              <option value="hawaii_volcano">🌋 Kilauea Crater, Hawaii</option>
+            </select>
+          </div>
+
+          <!-- Drape Layer Mode -->
+          <div class="cesium-control-group">
+            <label class="cesium-label">🎨 Globe Ground Drape Mode</label>
+            <div class="mode-select-group" id="cesium-drape-group">
+              <button class="btn-sm active" id="cesium-drape-optical-btn">📷 Satellite Photo</button>
+              <button class="btn-sm" id="cesium-drape-depth-btn">🌡️ Depth Heatmap</button>
+              <button class="btn-sm" id="cesium-drape-mesh-btn">🔺 Mesh Only</button>
+              <button class="btn-sm" id="cesium-drape-globe-btn">🌐 Globe Only</button>
+            </div>
+          </div>
+
+          <!-- Interactive 3D Measurement Tool -->
+          <div class="cesium-control-group">
+            <label class="cesium-label">📏 Interactive 3D Spatial Analysis</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button class="btn-sm" id="cesium-measure-btn">📐 Start 3D Measure</button>
+              <button class="btn-sm" id="cesium-measure-clear-btn" style="display:none;">❌ Clear Pins</button>
+            </div>
+            <div id="cesium-measure-readout" class="cesium-readout-card" style="display:none;">
+              <div class="readout-item"><span>Distance:</span> <strong id="measure-dist">—</strong></div>
+              <div class="readout-item"><span>Elevation Δh:</span> <strong id="measure-elev">—</strong></div>
+              <div class="readout-item"><span>Slope Angle:</span> <strong id="measure-slope">—</strong></div>
+            </div>
+          </div>
+
+          <!-- Solar Position / Shadow Slider -->
+          <div class="cesium-control-group">
+            <div class="slider-label">
+              <span>☀️ Solar Position / Shadows</span>
+              <span id="cesium-solar-val">14:00 (Afternoon)</span>
+            </div>
+            <input type="range" id="cesium-solar-slider" min="6" max="20" step="0.5" value="14" />
+          </div>
+
+          <!-- Model Height Offset Slider -->
+          <div class="cesium-control-group">
+            <div class="slider-label">
+              <span>⛰️ Model Height Offset</span>
+              <span id="cesium-height-val">0 m</span>
+            </div>
+            <input type="range" id="cesium-height-slider" min="-200" max="400" step="5" value="0" />
+          </div>
+
+          <!-- Model Scale Multiplier Slider -->
+          <div class="cesium-control-group">
+            <div class="slider-label">
+              <span>🔍 Model Scale</span>
+              <span id="cesium-scale-val">1.0×</span>
+            </div>
+            <input type="range" id="cesium-scale-slider" min="0.2" max="5.0" step="0.1" value="1.0" />
+          </div>
+        </div>
+      </div>
 
   </section>
 
@@ -243,59 +400,172 @@ import {
   setElevationScale,
   setFlySpeed,
   setSunAngle,
+  getViewerType,
+  setViewMode,
+  // Mesh overlay
+  loadMeshOverlay,
+  setMeshOpacity,
+  toggleMeshOverlay,
+  setMeshWireframe,
+  disposeMeshOverlay,
 } from '/app/viewer.js';
 
+import {
+  initCesiumViewer,
+  loadCesiumModel,
+  setCesiumLandmark,
+  setCesiumDrapeMode,
+  setCesiumSolarTime,
+  updateCesiumModelTransform,
+  toggleCesiumMeasurement,
+  clearCesiumMeasurement
+} from '/app/cesium_viewer.js';
+
 /* ─── DOM refs ─────────────────────────────────────────────── */
-const dropzone       = document.getElementById('dropzone');
-const fileInput      = document.getElementById('file-input');
-const fileInfo       = document.getElementById('file-info');
-const fileNameDisplay= document.getElementById('file-name-display');
-const processBtn     = document.getElementById('process-btn');
-const demoBtn        = document.getElementById('demo-btn');
-const newImageBtn    = document.getElementById('new-image-btn');
-const advToggle      = document.getElementById('adv-toggle');
-const advPanel       = document.getElementById('adv-panel');
-const advArrow       = document.getElementById('adv-arrow');
-const uploadSection  = document.getElementById('upload-section');
+const dropzone          = document.getElementById('dropzone');
+const fileInput         = document.getElementById('file-input');
+const fileInfo          = document.getElementById('file-info');
+const fileNameDisplay   = document.getElementById('file-name-display');
+const processBtn        = document.getElementById('process-btn');
+const demoBtn           = document.getElementById('demo-btn');
+const newImageBtn       = document.getElementById('new-image-btn');
+const advToggle         = document.getElementById('adv-toggle');
+const advPanel          = document.getElementById('adv-panel');
+const advArrow          = document.getElementById('adv-arrow');
+const uploadSection     = document.getElementById('upload-section');
 const processingSection = document.getElementById('processing-section');
-const resultsSection = document.getElementById('results-section');
-const errorToast     = document.getElementById('error-toast');
-const modeBadge      = document.getElementById('mode-badge');
-const flyToggleBtn   = document.getElementById('fly-toggle-btn');
-const resetCamBtn    = document.getElementById('reset-cam-btn');
+const resultsSection    = document.getElementById('results-section');
+const errorToast        = document.getElementById('error-toast');
+const modeBadge         = document.getElementById('mode-badge');
+const flyToggleBtn      = document.getElementById('fly-toggle-btn');
+const resetCamBtn       = document.getElementById('reset-cam-btn');
+const unityIframe       = document.getElementById('unity-iframe');
+const threejsCanvas     = document.getElementById('threejs-canvas');
+const engineBadge       = document.getElementById('engine-badge');
+const viewerOverlay     = document.getElementById('viewer-overlay-info');
 
 // Sliders
-const elevSlider = document.getElementById('elev-slider');
-const speedSlider= document.getElementById('speed-slider');
-const sunSlider  = document.getElementById('sun-slider');
-const elevVal    = document.getElementById('elev-val');
-const speedVal   = document.getElementById('speed-val');
-const sunVal     = document.getElementById('sun-val');
+const elevSlider  = document.getElementById('elev-slider');
+const speedSlider = document.getElementById('speed-slider');
+const sunSlider   = document.getElementById('sun-slider');
+const elevVal     = document.getElementById('elev-val');
+const speedVal    = document.getElementById('speed-val');
+const sunVal      = document.getElementById('sun-val');
+
+// Mesh overlay panel
+const meshPanel            = document.getElementById('mesh-overlay-panel');
+const meshVisibleToggle    = document.getElementById('mesh-visible-toggle');
+const meshWireframeToggle  = document.getElementById('mesh-wireframe-toggle');
+const meshOpacitySlider    = document.getElementById('mesh-opacity-slider');
+const meshOpacityVal       = document.getElementById('mesh-opacity-val');
+const meshLoadingIndicator = document.getElementById('mesh-loading-indicator');
+
+// Download links
+const dlPointCloud = document.getElementById('dl-pointcloud');
 
 /* ─── State ────────────────────────────────────────────────── */
-const API_BASE = ''; // same origin
-let viewerInited = false;
-let selectedFile = null;
-let lastResult = null;
+let selectedFile   = null;
+let lastResult     = null;
+let lastMetadata   = null;
 
-/* ─── Init Three.js immediately ─────────────────────────────── */
-const canvas = document.getElementById('threejs-canvas');
-initViewer(canvas);
-viewerInited = true;
+// Unity viewer state
+let activeViewer   = 'threejs';
+let unityReady     = false;
+let pendingPayload = null;
+
+/* ─── Unity build probe ──────────────────────────────────────
+ *  HEAD /unity-build/index.html
+ *    200 → Unity build exists → activate iframe, hide canvas
+ *    !200 / error → keep Three.js
+ * ─────────────────────────────────────────────────────────── */
+async function checkUnityBuild() {
+  try {
+    const res = await fetch('/unity-build/index.html', { method: 'HEAD' });
+    if (res.ok) {
+      activeViewer = 'unity';
+      _activateUnityViewer();
+    } else {
+      _activateThreeJsViewer();
+    }
+  } catch (_) {
+    _activateThreeJsViewer();
+  }
+}
+
+function _activateUnityViewer() {
+  unityIframe.src = '/unity-build/index.html';
+  unityIframe.style.display   = 'block';
+  threejsCanvas.style.display = 'none';
+  if (viewerOverlay) viewerOverlay.style.display = 'none';
+
+  // Hide Three.js-only controls
+  flyToggleBtn.style.display = 'none';
+  resetCamBtn.style.display  = 'none';
+  document.querySelector('.terrain-sliders').style.display = 'none';
+
+  engineBadge.textContent   = '🎮 Unity';
+  engineBadge.style.opacity = '1';
+
+  const infoDiv = document.createElement('div');
+  infoDiv.className = 'viewer-overlay-info';
+  infoDiv.id = 'unity-controls-hint';
+  infoDiv.innerHTML = 'WASD to fly · RMB to look · Scroll to adjust speed';
+  document.getElementById('viewer-canvas-wrap').appendChild(infoDiv);
+
+  window.addEventListener('message', _onUnityMessage);
+  console.log('[DepthWizard] Unity WebGL viewer activated.');
+}
+
+function _activateThreeJsViewer() {
+  activeViewer = 'threejs';
+  unityIframe.style.display   = 'none';
+  threejsCanvas.style.display = 'block';
+
+  engineBadge.textContent   = '⬛ Three.js';
+  engineBadge.style.opacity = '1';
+
+  initViewer(threejsCanvas);
+  console.log('[DepthWizard] Three.js fallback viewer activated.');
+}
+
+/* ─── Unity postMessage handler ────────────────────────────── */
+function _onUnityMessage(event) {
+  const data = event.data;
+  if (!data || typeof data.type !== 'string') return;
+
+  switch (data.type) {
+    case 'dw:unityReady':
+      unityReady = true;
+      if (pendingPayload) {
+        _postTerrainToUnity(pendingPayload);
+        pendingPayload = null;
+      }
+      break;
+    case 'dw:error':
+      showError('Unity viewer error — ' + (data.message || 'unknown'));
+      break;
+  }
+}
+
+function _postTerrainToUnity(resultData) {
+  if (!unityIframe || !unityIframe.contentWindow) return;
+  unityIframe.contentWindow.postMessage(
+    { type: 'dw:loadTerrain', payload: resultData }, '*'
+  );
+}
 
 /* ─── Step indicator helper ─────────────────────────────────── */
 let stepTimer = null;
 function animateSteps() {
   const steps = [1, 2, 3, 4];
   let i = 0;
-  // reset
   steps.forEach(n => {
     const el = document.getElementById(`step-${n}`);
-    el.classList.remove('active','done');
+    el.classList.remove('active', 'done');
   });
   stepTimer = setInterval(() => {
     if (i > 0) {
-      document.getElementById(`step-${steps[i-1]}`).classList.replace('active','done');
+      document.getElementById(`step-${steps[i-1]}`).classList.replace('active', 'done');
     }
     if (i < steps.length) {
       document.getElementById(`step-${steps[i]}`).classList.add('active');
@@ -358,18 +628,15 @@ newImageBtn.addEventListener('click', () => {
   fileInput.value = '';
   fileInfo.classList.remove('visible');
   processBtn.disabled = true;
+  meshPanel.style.display = 'none';
   showUpload();
 });
 
 /* ─── Demo button ────────────────────────────────────────────── */
 demoBtn.addEventListener('click', async () => {
-  // Load the pre-existing output files directly
-  // These are the files that live in /output/  and were generated from
-  // the test_pipeline run. We re-use their download URLs directly.
   showProcessing();
-  await _sleep(2200);  // simulate pipeline feel
+  await _sleep(2200);
 
-  // Build a synthetic result from the known output files
   const demoResult = {
     task_id: 'demo',
     status: 'success',
@@ -386,6 +653,8 @@ demoBtn.addEventListener('click', async () => {
       heightmap_16bit_png:        '/files/dsm_aab93e316f_heightmap_unity16.png',
       geotiff_dsm_32bit:          '/files/dsm_aab93e316f_dsm_metric.tif',
       calibration_metadata_json:  '/files/dsm_aab93e316f_metadata.json',
+      mesh_glb:       null,   // Demo: no mesh (requires real processing)
+      pointcloud_ply: null,
     }
   };
 
@@ -405,7 +674,7 @@ async function processImage(file) {
   form.append('overlap_ratio', document.getElementById('overlap').value);
 
   try {
-    const res = await fetch(`${API_BASE}/process`, { method: 'POST', body: form });
+    const res = await fetch('/process', { method: 'POST', body: form });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
       throw new Error(err.detail || `HTTP ${res.status}`);
@@ -421,7 +690,8 @@ async function processImage(file) {
 
 /* ─── Display results + load 3D terrain ─────────────────────── */
 async function displayResults(data) {
-  lastResult = data;
+  lastResult   = data;
+  lastMetadata = data.metadata;
   const urls = data.download_urls;
   const meta = data.metadata;
 
@@ -461,28 +731,104 @@ async function displayResults(data) {
   document.getElementById('dl-geotiff').href   = urls.geotiff_dsm_32bit;
   document.getElementById('dl-meta').href      = urls.calibration_metadata_json;
 
-  // Show results panel first
-  showResults();
-  // Give the DOM a frame to paint before heavy Three.js load
-  await _sleep(80);
-
-  // Load 3D terrain
-  try {
-    await loadTerrain(urls.heightmap_8bit_preview_png, urls.optical_texture_png, meta);
-  } catch (e) {
-    // Fallback: height-only (no texture)
-    try {
-      await loadTerrainHeightOnly(urls.heightmap_8bit_preview_png, meta);
-    } catch (e2) {
-      showError('3D viewer failed to load. Try a different image.');
-    }
+  // Point cloud download
+  if (urls.pointcloud_ply) {
+    dlPointCloud.href = urls.pointcloud_ply;
+    dlPointCloud.style.display = '';
+  } else {
+    dlPointCloud.style.display = 'none';
   }
 
-  // Scroll to viewer
-  document.getElementById('viewer-canvas-wrap').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // Show results panel
+  showResults();
+  await _sleep(80);
+
+  // ── Route to viewer ───────────────────────────────────────────
+  if (activeViewer === 'unity') {
+    if (unityReady) {
+      _postTerrainToUnity(data);
+    } else {
+      pendingPayload = data;
+    }
+    document.getElementById('viewer-canvas-wrap')
+      .scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else {
+    // Three.js path
+    try {
+      await loadTerrain(urls.heightmap_8bit_preview_png, urls.optical_texture_png, meta);
+    } catch (e) {
+      try {
+        await loadTerrainHeightOnly(urls.heightmap_8bit_preview_png, meta);
+      } catch (e2) {
+        showError('3D viewer failed to load. Try a different image.');
+      }
+    }
+    document.getElementById('viewer-canvas-wrap')
+      .scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    // ── Load mesh overlay if available (Three.js only) ────────
+    if (urls.mesh_glb) {
+      _initMeshOverlayPanel();
+      _loadMeshWithIndicator(urls.mesh_glb, meta);
+    } else {
+      meshPanel.style.display = 'none';
+    }
+  }
 }
 
-/* ─── Flythrough / camera controls ──────────────────────────── */
+/* ─── Mesh overlay loading ───────────────────────────────────── */
+function _initMeshOverlayPanel() {
+  meshPanel.style.display  = 'block';
+  meshLoadingIndicator.style.display = 'flex';
+  meshVisibleToggle.checked   = true;
+  meshWireframeToggle.checked = false;
+  meshOpacitySlider.value     = '0.88';
+  meshOpacityVal.textContent  = '88%';
+
+  // Update engine badge
+  engineBadge.textContent   = '⬛ Three.js + Mesh';
+  engineBadge.style.opacity = '1';
+}
+
+async function _loadMeshWithIndicator(glbUrl, meta) {
+  try {
+    await loadMeshOverlay(glbUrl, meta, 0.88);
+    meshLoadingIndicator.style.display = 'none';
+    console.log('[DepthWizard] Mesh overlay ready.');
+  } catch (err) {
+    meshLoadingIndicator.style.display = 'none';
+    meshPanel.style.display = 'none';
+    console.warn('[DepthWizard] Mesh overlay failed to load:', err);
+    engineBadge.textContent = '⬛ Three.js';
+    // Non-fatal — terrain viewer still works
+  }
+}
+
+/* ─── Mesh overlay controls ──────────────────────────────────── */
+meshVisibleToggle.addEventListener('change', () => {
+  toggleMeshOverlay();
+});
+
+meshWireframeToggle.addEventListener('change', () => {
+  setMeshWireframe(meshWireframeToggle.checked);
+  // When wireframe is on, full opacity makes it clearer
+  if (meshWireframeToggle.checked) {
+    setMeshOpacity(1.0);
+    meshOpacitySlider.value = '1';
+    meshOpacityVal.textContent = '100%';
+  } else {
+    const v = parseFloat(meshOpacitySlider.value);
+    setMeshOpacity(v);
+  }
+});
+
+meshOpacitySlider.addEventListener('input', () => {
+  const v = parseFloat(meshOpacitySlider.value);
+  meshOpacityVal.textContent = Math.round(v * 100) + '%';
+  setMeshOpacity(v);
+});
+
+/* ─── Flythrough / camera controls (Three.js only) ──────────── */
 flyToggleBtn.addEventListener('click', () => {
   const flying = toggleFlythrough();
   flyToggleBtn.textContent = flying ? '⏸ Pause Flythrough' : '▶ Resume Flythrough';
@@ -495,13 +841,214 @@ resetCamBtn.addEventListener('click', () => {
   modeBadge.textContent    = '✈ Flythrough';
 });
 
-// Orbit mode triggered by user mouse click inside canvas
 document.addEventListener('dw:orbitMode', () => {
   flyToggleBtn.textContent = '▶ Resume Flythrough';
   modeBadge.textContent    = '🖱 Orbit Mode';
 });
 
-/* ─── Sliders ────────────────────────────────────────────────── */
+/* ─── Engine and View Mode Button Handlers ───────────────────────── */
+const engineThreeBtn  = document.getElementById('engine-threejs-btn');
+const engineCesiumBtn = document.getElementById('engine-cesium-btn');
+const cesiumContainer = document.getElementById('cesium-container');
+
+const modeMeshOnlyBtn   = document.getElementById('mode-mesh-only-btn');
+const modeThreejsOnlyBtn= document.getElementById('mode-threejs-only-btn');
+const modeCombinedBtn   = document.getElementById('mode-combined-btn');
+
+const cesiumControlsPanel = document.getElementById('cesium-controls-panel');
+
+// Engine Switcher
+engineThreeBtn.addEventListener('click', () => {
+  engineThreeBtn.classList.add('active');
+  engineCesiumBtn.classList.remove('active');
+
+  threejsCanvas.style.display = 'block';
+  cesiumContainer.style.display = 'none';
+  if (cesiumControlsPanel) cesiumControlsPanel.style.display = 'none';
+  if (unityIframe) unityIframe.style.display = 'none';
+
+  flyToggleBtn.style.display = '';
+  resetCamBtn.style.display  = '';
+  document.querySelector('.terrain-sliders').style.display = '';
+
+  engineBadge.textContent = '⬛ Three.js';
+  engineBadge.style.opacity = '1';
+});
+
+engineCesiumBtn.addEventListener('click', () => {
+  engineCesiumBtn.classList.add('active');
+  engineThreeBtn.classList.remove('active');
+
+  threejsCanvas.style.display = 'none';
+  cesiumContainer.style.display = 'block';
+  if (cesiumControlsPanel) cesiumControlsPanel.style.display = 'block';
+  if (unityIframe) unityIframe.style.display = 'none';
+
+  flyToggleBtn.style.display = 'none';
+  resetCamBtn.style.display  = 'none';
+  document.querySelector('.terrain-sliders').style.display = 'none';
+
+  engineBadge.textContent = '🌍 CesiumJS Graphics';
+  engineBadge.style.opacity = '1';
+
+  try {
+    initCesiumViewer(cesiumContainer);
+    if (lastResult) {
+      loadCesiumModel(
+        lastResult.download_urls.mesh_glb,
+        lastResult.download_urls.optical_texture_png,
+        lastResult.download_urls.depth_colorized_png || lastResult.download_urls.heightmap_8bit_preview_png,
+        lastMetadata
+      );
+    }
+  } catch (err) {
+    showError('CesiumJS graphics viewer initialization failed: ' + err.message);
+  }
+});
+
+/* ─── Cesium GIS Controls Handlers ───────────────────────────── */
+const cesiumLandmarkSelect = document.getElementById('cesium-landmark-select');
+const cesiumDrapeOpticalBtn = document.getElementById('cesium-drape-optical-btn');
+const cesiumDrapeDepthBtn   = document.getElementById('cesium-drape-depth-btn');
+const cesiumDrapeMeshBtn    = document.getElementById('cesium-drape-mesh-btn');
+const cesiumDrapeGlobeBtn   = document.getElementById('cesium-drape-globe-btn');
+
+const cesiumMeasureBtn      = document.getElementById('cesium-measure-btn');
+const cesiumMeasureClearBtn = document.getElementById('cesium-measure-clear-btn');
+const cesiumMeasureReadout  = document.getElementById('cesium-measure-readout');
+const measureDistEl         = document.getElementById('measure-dist');
+const measureElevEl         = document.getElementById('measure-elev');
+const measureSlopeEl        = document.getElementById('measure-slope');
+
+const cesiumSolarSlider     = document.getElementById('cesium-solar-slider');
+const cesiumSolarVal        = document.getElementById('cesium-solar-val');
+const cesiumHeightSlider    = document.getElementById('cesium-height-slider');
+const cesiumHeightVal       = document.getElementById('cesium-height-val');
+const cesiumScaleSlider     = document.getElementById('cesium-scale-slider');
+const cesiumScaleVal        = document.getElementById('cesium-scale-val');
+
+if (cesiumLandmarkSelect) {
+  cesiumLandmarkSelect.addEventListener('change', () => {
+    setCesiumLandmark(cesiumLandmarkSelect.value);
+  });
+}
+
+function setCesiumDrapeActiveBtn(activeBtn) {
+  [cesiumDrapeOpticalBtn, cesiumDrapeDepthBtn, cesiumDrapeMeshBtn, cesiumDrapeGlobeBtn].forEach(btn => {
+    if (btn) btn.classList.remove('active');
+  });
+  if (activeBtn) activeBtn.classList.add('active');
+}
+
+if (cesiumDrapeOpticalBtn) {
+  cesiumDrapeOpticalBtn.addEventListener('click', () => {
+    setCesiumDrapeActiveBtn(cesiumDrapeOpticalBtn);
+    setCesiumDrapeMode('optical');
+  });
+}
+if (cesiumDrapeDepthBtn) {
+  cesiumDrapeDepthBtn.addEventListener('click', () => {
+    setCesiumDrapeActiveBtn(cesiumDrapeDepthBtn);
+    setCesiumDrapeMode('depth');
+  });
+}
+if (cesiumDrapeMeshBtn) {
+  cesiumDrapeMeshBtn.addEventListener('click', () => {
+    setCesiumDrapeActiveBtn(cesiumDrapeMeshBtn);
+    setCesiumDrapeMode('mesh_only');
+  });
+}
+if (cesiumDrapeGlobeBtn) {
+  cesiumDrapeGlobeBtn.addEventListener('click', () => {
+    setCesiumDrapeActiveBtn(cesiumDrapeGlobeBtn);
+    setCesiumDrapeMode('globe_only');
+  });
+}
+
+let measuringActive = false;
+if (cesiumMeasureBtn) {
+  cesiumMeasureBtn.addEventListener('click', () => {
+    measuringActive = !measuringActive;
+    if (measuringActive) {
+      cesiumMeasureBtn.textContent = '⏹ Stop Measuring';
+      cesiumMeasureBtn.classList.add('active');
+      cesiumMeasureClearBtn.style.display = 'inline-block';
+      cesiumMeasureReadout.style.display = 'flex';
+
+      toggleCesiumMeasurement(true, (data) => {
+        const distStr = data.distanceKm >= 1 ? `${data.distanceKm.toFixed(2)} km` : `${data.distanceMeters.toFixed(1)} m`;
+        measureDistEl.textContent = distStr;
+        measureElevEl.textContent = `${data.elevDeltaMeters >= 0 ? '+' : ''}${data.elevDeltaMeters.toFixed(1)} m`;
+        measureSlopeEl.textContent = `${data.slopeDegrees.toFixed(1)}°`;
+      });
+    } else {
+      cesiumMeasureBtn.textContent = '📐 Start 3D Measure';
+      cesiumMeasureBtn.classList.remove('active');
+      toggleCesiumMeasurement(false);
+    }
+  });
+}
+
+if (cesiumMeasureClearBtn) {
+  cesiumMeasureClearBtn.addEventListener('click', () => {
+    clearCesiumMeasurement();
+    measureDistEl.textContent = '—';
+    measureElevEl.textContent = '—';
+    measureSlopeEl.textContent = '—';
+  });
+}
+
+if (cesiumSolarSlider) {
+  cesiumSolarSlider.addEventListener('input', () => {
+    const hour = parseFloat(cesiumSolarSlider.value);
+    const hInt = Math.floor(hour);
+    const mInt = Math.round((hour - hInt) * 60);
+    const timeStr = `${hInt.toString().padStart(2, '0')}:${mInt.toString().padStart(2, '0')}`;
+    const desc = hour < 10 ? 'Morning' : (hour < 16 ? 'Afternoon' : 'Sunset');
+    cesiumSolarVal.textContent = `${timeStr} (${desc})`;
+    setCesiumSolarTime(hour);
+  });
+}
+
+if (cesiumHeightSlider) {
+  cesiumHeightSlider.addEventListener('input', () => {
+    const val = parseInt(cesiumHeightSlider.value);
+    cesiumHeightVal.textContent = `${val >= 0 ? '+' : ''}${val} m`;
+    updateCesiumModelTransform({ heightOffset: val });
+  });
+}
+
+if (cesiumScaleSlider) {
+  cesiumScaleSlider.addEventListener('input', () => {
+    const val = parseFloat(cesiumScaleSlider.value);
+    cesiumScaleVal.textContent = `${val.toFixed(1)}×`;
+    updateCesiumModelTransform({ scaleMultiplier: val });
+  });
+}
+
+// 3D Model Mode Switcher
+modeMeshOnlyBtn.addEventListener('click', () => {
+  modeMeshOnlyBtn.classList.add('active');
+  modeThreejsOnlyBtn.classList.remove('active');
+  modeCombinedBtn.classList.remove('active');
+  setViewMode('mesh-only');
+});
+
+modeThreejsOnlyBtn.addEventListener('click', () => {
+  modeThreejsOnlyBtn.classList.add('active');
+  modeMeshOnlyBtn.classList.remove('active');
+  modeCombinedBtn.classList.remove('active');
+  setViewMode('threejs-only');
+});
+
+modeCombinedBtn.addEventListener('click', () => {
+  modeCombinedBtn.classList.add('active');
+  modeMeshOnlyBtn.classList.remove('active');
+  modeThreejsOnlyBtn.classList.remove('active');
+  setViewMode('combined');
+});
+
+/* ─── Sliders (Three.js only) ───────────────────────────────── */
 elevSlider.addEventListener('input', () => {
   const v = parseFloat(elevSlider.value);
   elevVal.textContent = v.toFixed(1) + '×';
@@ -522,7 +1069,11 @@ sunSlider.addEventListener('input', () => {
 
 /* ─── Utility ────────────────────────────────────────────────── */
 function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/* ─── Boot sequence ──────────────────────────────────────────── */
+checkUnityBuild();
 </script>
+
 
 </body>
 </html>

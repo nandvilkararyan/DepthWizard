@@ -1,8 +1,14 @@
 import os
+import sys
 import uuid
 from pathlib import Path
 from typing import Optional, Dict, Any
 from contextlib import asynccontextmanager
+
+# Bootstrap project root directory into sys.path to prevent ModuleNotFoundError
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, status
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -10,11 +16,20 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 
-from app.config import OUTPUT_DIR, DEFAULT_MODEL_ID, DEFAULT_MIN_ELEVATION_METERS, DEFAULT_MAX_ELEVATION_METERS, get_device, FRONTEND_DIR
-from app.utils.image_io import load_optical_image, load_reference_dem
-from app.modules.depth_extractor import DepthExtractor
-from app.modules.scale_calibrator import ScaleCalibrator
-from app.modules.formatter import OutputFormatter
+try:
+    from app.config import OUTPUT_DIR, DEFAULT_MODEL_ID, DEFAULT_MIN_ELEVATION_METERS, DEFAULT_MAX_ELEVATION_METERS, get_device, FRONTEND_DIR
+    from app.utils.image_io import load_optical_image, load_reference_dem
+    from app.modules.depth_extractor import DepthExtractor
+    from app.modules.scale_calibrator import ScaleCalibrator
+    from app.modules.formatter import OutputFormatter
+    from app.modules.point_cloud_generator import PointCloudGenerator
+except ImportError:
+    from config import OUTPUT_DIR, DEFAULT_MODEL_ID, DEFAULT_MIN_ELEVATION_METERS, DEFAULT_MAX_ELEVATION_METERS, get_device, FRONTEND_DIR
+    from utils.image_io import load_optical_image, load_reference_dem
+    from modules.depth_extractor import DepthExtractor
+    from modules.scale_calibrator import ScaleCalibrator
+    from modules.formatter import OutputFormatter
+    from modules.point_cloud_generator import PointCloudGenerator
 
 
 # Global pipeline components
@@ -71,6 +86,11 @@ app.mount("/files", StaticFiles(directory=str(OUTPUT_DIR)), name="files")
 # Mount frontend (served at /app/*)
 if FRONTEND_DIR.exists():
     app.mount("/app", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+
+# Mount Unity WebGL build (served at /unity-build/*) — optional, present only after a Unity WebGL build
+UNITY_BUILD_DIR = Path(__file__).parent.parent / "unity-build"
+if UNITY_BUILD_DIR.exists():
+    app.mount("/unity-build", StaticFiles(directory=str(UNITY_BUILD_DIR), html=True), name="unity_build")
 
 
 @app.get("/", include_in_schema=False)
@@ -239,15 +259,43 @@ async def process_image(
             output_filepath=metadata_json_path
         )
 
+        # Module D: Point Cloud & Surface Mesh (requires open3d + trimesh)
+        mesh_glb_name:   str | None = None
+        ply_name:        str | None = None
+
+        if PointCloudGenerator.is_available():
+            try:
+                pc_gen = PointCloudGenerator()
+                mesh_glb_name  = f"{task_id}_mesh.glb"
+                ply_name       = f"{task_id}_pointcloud.ply"
+                mesh_glb_path  = str(OUTPUT_DIR / mesh_glb_name)
+                ply_path       = str(OUTPUT_DIR / ply_name)
+
+                pcd, mesh = pc_gen.generate(
+                    rgb_image=rgb_image,
+                    metric_dsm=calib_result.metric_dsm,
+                )
+                PointCloudGenerator.export_glb(mesh, mesh_glb_path)
+                PointCloudGenerator.export_ply(pcd, ply_path)
+            except Exception as mesh_err:
+                import traceback
+                print(f"[Module D WARNING] Mesh generation failed (pipeline continues): {mesh_err}")
+                traceback.print_exc()
+                mesh_glb_name = None
+                ply_name      = None
+
         # Construct download URLs
         base_url = "/files"
         download_urls = {
-            "heightmap_16bit_png": f"{base_url}/{unity_png_name}",
+            "heightmap_16bit_png":        f"{base_url}/{unity_png_name}",
             "heightmap_8bit_preview_png": f"{base_url}/{preview_png_name}",
-            "depth_colorized_png": f"{base_url}/{colorized_depth_name}",
-            "optical_texture_png": f"{base_url}/{optical_png_name}",
-            "geotiff_dsm_32bit": f"{base_url}/{geotiff_name}",
-            "calibration_metadata_json": f"{base_url}/{metadata_json_name}"
+            "depth_colorized_png":        f"{base_url}/{colorized_depth_name}",
+            "optical_texture_png":        f"{base_url}/{optical_png_name}",
+            "geotiff_dsm_32bit":          f"{base_url}/{geotiff_name}",
+            "calibration_metadata_json":  f"{base_url}/{metadata_json_name}",
+            # Module D outputs (null when open3d/trimesh not installed)
+            "mesh_glb":       f"{base_url}/{mesh_glb_name}" if mesh_glb_name else None,
+            "pointcloud_ply": f"{base_url}/{ply_name}"      if ply_name      else None,
         }
 
         return {
@@ -276,3 +324,10 @@ async def download_file(filename: str):
             detail=f"Requested file '{filename}' not found."
         )
     return FileResponse(path=str(target_path), filename=filename)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    print("[Launcher] Starting DepthWizard FastAPI server on http://localhost:8000...")
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+
