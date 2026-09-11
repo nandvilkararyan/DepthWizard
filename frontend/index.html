@@ -282,7 +282,7 @@
           </label>
           <!-- Wireframe -->
           <label class="mesh-toggle-label" for="mesh-wireframe-toggle">
-            <input type="checkbox" id="mesh-wireframe-toggle" />
+            <input type="checkbox" id="mesh-wireframe-toggle" checked />
             <span class="mesh-toggle-text">Wireframe</span>
           </label>
           <!-- Opacity -->
@@ -381,6 +381,75 @@
         </div>
       </div>
 
+      <!-- ── Flood Level Simulation Panel (shown after terrain loads) ── -->
+      <div class="flood-panel" id="flood-panel" style="display:none;">
+        <div class="flood-panel-header">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span class="flood-panel-icon">💧</span>
+            <span class="flood-panel-title">Flood Level Simulation</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span id="flood-risk-badge" class="flood-risk-badge risk-safe">Minimal Risk</span>
+            <label class="mesh-toggle-label" for="flood-visible-toggle">
+              <input type="checkbox" id="flood-visible-toggle" />
+              <span class="mesh-toggle-text">Show Water</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Stats row -->
+        <div class="flood-stats-row">
+          <div class="flood-stat">
+            <div class="flood-stat-label">💧 Water Elevation</div>
+            <div class="flood-stat-value" id="flood-level-val">— m</div>
+          </div>
+          <div class="flood-stat">
+            <div class="flood-stat-label">🌊 Area Submerged</div>
+            <div class="flood-stat-value" id="flood-submerged-val">0.0%</div>
+          </div>
+          <div class="flood-stat">
+            <div class="flood-stat-label">📏 Depth above Min</div>
+            <div class="flood-stat-value" id="flood-depth-val">0 m</div>
+          </div>
+        </div>
+
+        <!-- Water level slider -->
+        <div class="slider-group flood-slider-group">
+          <div class="slider-label">
+            <span>Water Level</span>
+            <span id="flood-slider-label">0 m</span>
+          </div>
+          <input type="range" id="flood-slider" min="0" max="1000" step="1" value="0" />
+          <div class="flood-slider-ticks">
+            <span>Min</span>
+            <span>25%</span>
+            <span>50%</span>
+            <span>75%</span>
+            <span>Max</span>
+          </div>
+        </div>
+
+        <!-- Scenario presets -->
+        <div class="flood-scenarios">
+          <span class="flood-scenarios-label">Scenarios:</span>
+          <button class="btn-sm flood-preset-btn" id="flood-preset-5">5%</button>
+          <button class="btn-sm flood-preset-btn" id="flood-preset-15">15%</button>
+          <button class="btn-sm flood-preset-btn" id="flood-preset-25">25%</button>
+          <button class="btn-sm flood-preset-btn" id="flood-preset-50">50%</button>
+          <button class="btn-sm flood-preset-btn" id="flood-preset-75">75%</button>
+          <button class="btn-sm flood-preset-btn" id="flood-preset-100">100%</button>
+          <button class="btn-sm flood-animate-btn" id="flood-animate-btn">▶ Animate Rising</button>
+        </div>
+
+        <!-- Submergence bar -->
+        <div class="flood-bar-wrap">
+          <div class="flood-bar-track">
+            <div class="flood-bar-fill" id="flood-bar-fill" style="width:0%"></div>
+            <div class="flood-bar-label" id="flood-bar-label">0% submerged</div>
+          </div>
+        </div>
+      </div>
+
   </section>
 
 </div><!-- /#app -->
@@ -408,6 +477,16 @@ import {
   toggleMeshOverlay,
   setMeshWireframe,
   disposeMeshOverlay,
+  // Flood simulator
+  initFloodSimulator,
+  setFloodLevel,
+  setFloodLevelPct,
+  animateFloodRising,
+  stopFloodAnimation,
+  toggleFloodVisible,
+  setFloodVisible,
+  getFloodState,
+  disposeFloodSimulator,
 } from '/app/viewer.js';
 
 import {
@@ -773,6 +852,9 @@ async function displayResults(data) {
     } else {
       meshPanel.style.display = 'none';
     }
+
+    // ── Initialise Flood Simulator ──────────────────────────────
+    _initFloodPanel(urls.heightmap_8bit_preview_png, meta);
   }
 }
 
@@ -781,9 +863,9 @@ function _initMeshOverlayPanel() {
   meshPanel.style.display  = 'block';
   meshLoadingIndicator.style.display = 'flex';
   meshVisibleToggle.checked   = true;
-  meshWireframeToggle.checked = false;
-  meshOpacitySlider.value     = '0.88';
-  meshOpacityVal.textContent  = '88%';
+  meshWireframeToggle.checked = true;
+  meshOpacitySlider.value     = '1';
+  meshOpacityVal.textContent  = '100%';
 
   // Update engine badge
   engineBadge.textContent   = '⬛ Three.js + Mesh';
@@ -792,9 +874,12 @@ function _initMeshOverlayPanel() {
 
 async function _loadMeshWithIndicator(glbUrl, meta) {
   try {
-    await loadMeshOverlay(glbUrl, meta, 0.88);
+    await loadMeshOverlay(glbUrl, meta, 1.0);
     meshLoadingIndicator.style.display = 'none';
-    console.log('[DepthWizard] Mesh overlay ready.');
+    // Apply wireframe immediately on load (default-on)
+    setMeshWireframe(true);
+    setMeshOpacity(1.0);
+    console.log('[DepthWizard] Mesh overlay ready (wireframe default).');
   } catch (err) {
     meshLoadingIndicator.style.display = 'none';
     meshPanel.style.display = 'none';
@@ -827,6 +912,150 @@ meshOpacitySlider.addEventListener('input', () => {
   meshOpacityVal.textContent = Math.round(v * 100) + '%';
   setMeshOpacity(v);
 });
+
+/* ─── Flood Level Simulation ──────────────────────────────────── */
+const floodPanel         = document.getElementById('flood-panel');
+const floodVisibleToggle = document.getElementById('flood-visible-toggle');
+const floodSlider        = document.getElementById('flood-slider');
+const floodSliderLabel   = document.getElementById('flood-slider-label');
+const floodLevelVal      = document.getElementById('flood-level-val');
+const floodSubmergedVal  = document.getElementById('flood-submerged-val');
+const floodDepthVal      = document.getElementById('flood-depth-val');
+const floodRiskBadge     = document.getElementById('flood-risk-badge');
+const floodBarFill       = document.getElementById('flood-bar-fill');
+const floodBarLabel      = document.getElementById('flood-bar-label');
+const floodAnimateBtn    = document.getElementById('flood-animate-btn');
+
+let _floodMin = 0, _floodMax = 100;
+let _floodAnimating = false;
+
+const RISK_CLASSES = ['safe', 'low', 'moderate', 'severe', 'extreme', 'catastrophic'];
+
+async function _initFloodPanel(heightmapUrl, metadata) {
+  if (!floodPanel) return;
+  const em = metadata?.elevation_metrics;
+  if (!em) return;
+
+  _floodMin = em.min_elevation_meters ?? 0;
+  _floodMax = em.max_elevation_meters ?? 100;
+
+  // Reconfigure slider range to match real meter bounds
+  floodSlider.min   = Math.round(_floodMin);
+  floodSlider.max   = Math.round(_floodMax);
+  floodSlider.step  = Math.max(0.5, (_floodMax - _floodMin) / 500);
+  floodSlider.value = String(Math.round(_floodMin));
+
+  // Show the panel
+  floodPanel.style.display = 'block';
+
+  // Reset UI
+  _updateFloodUI({ meters: _floodMin, pct: 0, riskLabel: 'Minimal', riskClass: 'safe' });
+  floodVisibleToggle.checked = false;
+
+  // Initialise the Three.js water plane (async — samples heightmap pixels)
+  try {
+    await initFloodSimulator(heightmapUrl, metadata);
+    console.log('[Flood] Simulator ready.');
+  } catch (err) {
+    console.warn('[Flood] Init failed:', err);
+  }
+}
+
+function _updateFloodUI({ meters, pct, riskLabel, riskClass }) {
+  if (floodLevelVal)     floodLevelVal.textContent     = `${meters.toFixed(1)} m`;
+  if (floodSubmergedVal) floodSubmergedVal.textContent  = `${pct.toFixed(1)}%`;
+  if (floodDepthVal)     floodDepthVal.textContent      = `${(meters - _floodMin).toFixed(1)} m`;
+  if (floodSliderLabel)  floodSliderLabel.textContent   = `${meters.toFixed(1)} m`;
+
+  // Risk badge
+  if (floodRiskBadge) {
+    RISK_CLASSES.forEach(c => floodRiskBadge.classList.remove(`risk-${c}`));
+    floodRiskBadge.classList.add(`risk-${riskClass}`);
+    floodRiskBadge.textContent = riskLabel + ' Risk';
+  }
+
+  // Submergence fill bar
+  const fillPct = Math.min(100, Math.max(0, pct));
+  if (floodBarFill)  floodBarFill.style.width     = `${fillPct}%`;
+  if (floodBarFill)  floodBarFill.style.background = _riskGradient(riskClass);
+  if (floodBarLabel) floodBarLabel.textContent     = `${fillPct.toFixed(1)}% submerged`;
+}
+
+function _riskGradient(riskClass) {
+  const gradients = {
+    safe:         'linear-gradient(90deg, #10b981, #34d399)',
+    low:          'linear-gradient(90deg, #84cc16, #a3e635)',
+    moderate:     'linear-gradient(90deg, #f59e0b, #fbbf24)',
+    severe:       'linear-gradient(90deg, #f97316, #fb923c)',
+    extreme:      'linear-gradient(90deg, #ef4444, #f87171)',
+    catastrophic: 'linear-gradient(90deg, #7c3aed, #ef4444)',
+  };
+  return gradients[riskClass] || gradients.safe;
+}
+
+// React to flood updates dispatched from viewer.js
+document.addEventListener('dw:floodUpdate', (e) => {
+  _updateFloodUI(e.detail);
+  if (floodSlider) floodSlider.value = String(e.detail.meters);
+});
+
+// Slider input
+if (floodSlider) {
+  floodSlider.addEventListener('input', () => {
+    const meters = parseFloat(floodSlider.value);
+    setFloodLevel(meters);
+  });
+}
+
+// Show/hide water toggle
+if (floodVisibleToggle) {
+  floodVisibleToggle.addEventListener('change', () => {
+    setFloodVisible(floodVisibleToggle.checked);
+    // If turning on, immediately push slider value so water appears at correct height
+    if (floodVisibleToggle.checked) {
+      setFloodLevel(parseFloat(floodSlider.value));
+    }
+  });
+}
+
+// Scenario presets
+const _floodPresets = { 5: 0.05, 15: 0.15, 25: 0.25, 50: 0.50, 75: 0.75, 100: 1.0 };
+Object.entries(_floodPresets).forEach(([pct, frac]) => {
+  const btn = document.getElementById(`flood-preset-${pct}`);
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    stopFloodAnimation();
+    _floodAnimating = false;
+    floodAnimateBtn.textContent = '▶ Animate Rising';
+    setFloodVisible(true);
+    floodVisibleToggle.checked = true;
+    setFloodLevelPct(frac);
+    floodSlider.value = String(_floodMin + frac * (_floodMax - _floodMin));
+  });
+});
+
+// Animate Rising button
+if (floodAnimateBtn) {
+  floodAnimateBtn.addEventListener('click', () => {
+    if (_floodAnimating) {
+      stopFloodAnimation();
+      _floodAnimating = false;
+      floodAnimateBtn.textContent = '▶ Animate Rising';
+    } else {
+      _floodAnimating = true;
+      floodAnimateBtn.textContent = '⏹ Stop';
+      setFloodVisible(true);
+      floodVisibleToggle.checked = true;
+      // Start from min, rise to 75%
+      setFloodLevelPct(0);
+      animateFloodRising(_floodMin + (_floodMax - _floodMin) * 0.75, 5000);
+      setTimeout(() => {
+        _floodAnimating = false;
+        floodAnimateBtn.textContent = '▶ Animate Rising';
+      }, 5200);
+    }
+  });
+}
 
 /* ─── Flythrough / camera controls (Three.js only) ──────────── */
 flyToggleBtn.addEventListener('click', () => {

@@ -44,6 +44,25 @@ const SEGMENT_COUNT = 256;    // geometry resolution — higher = smoother but h
 let meshOverlayGroup   = null;   // THREE.Group holding the loaded GLB
 let meshOverlayVisible = true;
 
+/* ── Flood simulator state ─────────────────────────────────────────── */
+const _flood = {
+  mesh:         null,    // THREE.Mesh — the water plane
+  visible:      false,
+  minElev:      0,       // meters — from metadata
+  maxElev:      100,     // meters — from metadata
+  dispScale:    1.5,     // mirror of terrain dispScale
+  dispBias:     -0.6,    // mirror of terrain dispBias
+  currentLevel: 0,       // current water elevation in meters
+  elevPixels:   null,    // Float32Array of per-pixel elevations (from 8-bit PNG)
+  animRaf:      null,    // animation frame id for rising animation
+  rippleTime:   0,       // cumulative time for UV ripple
+};
+
+// Dispatch event so index.html can update the flood readout UI
+function _floodEvent(detail) {
+  document.dispatchEvent(new CustomEvent('dw:floodUpdate', { detail }));
+}
+
 /* ------------------------------------------------------------------ */
 /*  Init                                                                */
 /* ------------------------------------------------------------------ */
@@ -122,8 +141,9 @@ export async function loadTerrain(heightmapUrl, textureUrl, metadata) {
     terrainMesh.material.dispose();
     terrainMesh = null;
   }
-  // Also dispose any stale mesh overlay (new image loaded)
+  // Also dispose any stale mesh overlay and flood sim (new image loaded)
   disposeMeshOverlay();
+  disposeFloodSimulator();
 
   const { dispScale } = _computeDispScale(metadata);
 
@@ -179,6 +199,7 @@ export async function loadTerrainHeightOnly(heightmapUrl, metadata) {
     terrainMesh = null;
   }
   disposeMeshOverlay();
+  disposeFloodSimulator();
 
   const { dispScale } = _computeDispScale(metadata);
   const loader        = new THREE.TextureLoader();
@@ -401,6 +422,219 @@ export function setFlyHeight(val) { flyPathHeight = val; flyPathRadius = val * 1
 /** Returns the viewer identifier string for use by index.html */
 export function getViewerType() { return 'threejs'; }
 
+/* ------------------------------------------------------------------ */
+/*  Flood Level Simulation API                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Initialises the flood simulator after a terrain has been loaded.
+ * Samples the 8-bit heightmap PNG into an offscreen canvas and builds
+ * a flat Float32Array of per-pixel elevations (in meters).
+ *
+ * @param {string} heightmapUrl  – URL of the 8-bit preview PNG
+ * @param {object} metadata      – Pipeline metadata (elevation_metrics required)
+ */
+export async function initFloodSimulator(heightmapUrl, metadata) {
+  disposeFloodSimulator();
+
+  const { dispScale } = _computeDispScale(metadata);
+  _flood.dispScale  = dispScale;
+  _flood.dispBias   = -dispScale * 0.4;
+  _flood.minElev    = metadata?.elevation_metrics?.min_elevation_meters ?? 0;
+  _flood.maxElev    = metadata?.elevation_metrics?.max_elevation_meters ?? 100;
+  _flood.currentLevel = _flood.minElev;
+
+  // ── 1. Sample 8-bit heightmap into elevation array ─────────────────
+  await new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      // Downsample to max 128×128 for speed — enough for histogram accuracy
+      const maxDim = 128;
+      const scale  = Math.min(maxDim / img.width, maxDim / img.height, 1);
+      canvas.width  = Math.max(1, Math.round(img.width  * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const data  = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      const range = _flood.maxElev - _flood.minElev || 1;
+      const px    = new Float32Array(canvas.width * canvas.height);
+      for (let i = 0; i < px.length; i++) {
+        // Red channel == gray value in a grayscale PNG
+        px[i] = _flood.minElev + (data[i * 4] / 255) * range;
+      }
+      _flood.elevPixels = px;
+      resolve();
+    };
+    img.onerror = () => resolve(); // non-fatal
+    img.src = heightmapUrl;
+  });
+
+  // ── 2. Create animated water plane mesh ────────────────────────────
+  const waterGeo = new THREE.PlaneGeometry(8.4, 8.4, 1, 1);
+  waterGeo.rotateX(-Math.PI / 2);
+
+  const waterMat = new THREE.MeshStandardMaterial({
+    color:       0x0077b6,
+    transparent: true,
+    opacity:     0.58,
+    roughness:   0.08,
+    metalness:   0.18,
+    side:        THREE.DoubleSide,
+    depthWrite:  false,
+  });
+
+  _flood.mesh = new THREE.Mesh(waterGeo, waterMat);
+  _flood.mesh.name    = 'floodWater';
+  _flood.mesh.visible = false;
+  _flood.mesh.renderOrder = 1;   // render after opaque terrain
+  _flood.visible = false;
+
+  // Start at terrain min (water is hidden, but position it correctly)
+  _flood.mesh.position.y = _flood.dispBias;  // sits at terrain zero level
+  scene.add(_flood.mesh);
+
+  console.log('[FloodSim] Initialised. Elevation range:', _flood.minElev.toFixed(1), '—', _flood.maxElev.toFixed(1), 'm');
+}
+
+/**
+ * Moves the water plane to the specified absolute elevation (meters).
+ * Returns { pct, riskLabel } for the UI.
+ *
+ * @param {number} meters – Target water elevation in meters
+ * @returns {{ pct: number, riskLabel: string }}
+ */
+export function setFloodLevel(meters) {
+  if (!_flood.mesh) return { pct: 0, riskLabel: 'No terrain' };
+
+  const clampedMeters = Math.max(_flood.minElev, Math.min(_flood.maxElev, meters));
+  _flood.currentLevel = clampedMeters;
+
+  // Map meters → Three.js scene Y using the same formula as terrain displacement
+  const range = _flood.maxElev - _flood.minElev || 1;
+  const normElev = (clampedMeters - _flood.minElev) / range;  // 0..1
+  const sceneY   = normElev * _flood.dispScale + _flood.dispBias;
+  _flood.mesh.position.y = sceneY;
+
+  // ── Compute % submerged from histogram ────────────────────────────
+  let pct = 0;
+  if (_flood.elevPixels && _flood.elevPixels.length > 0) {
+    let below = 0;
+    for (let i = 0; i < _flood.elevPixels.length; i++) {
+      if (_flood.elevPixels[i] <= clampedMeters) below++;
+    }
+    pct = (below / _flood.elevPixels.length) * 100;
+  }
+
+  // ── Risk label ────────────────────────────────────────────────────
+  let riskLabel, riskClass;
+  if (pct < 5)        { riskLabel = 'Minimal';      riskClass = 'safe'; }
+  else if (pct < 15)  { riskLabel = 'Low';          riskClass = 'low'; }
+  else if (pct < 35)  { riskLabel = 'Moderate';     riskClass = 'moderate'; }
+  else if (pct < 60)  { riskLabel = 'Severe';       riskClass = 'severe'; }
+  else if (pct < 85)  { riskLabel = 'Extreme';      riskClass = 'extreme'; }
+  else                { riskLabel = 'Catastrophic'; riskClass = 'catastrophic'; }
+
+  const result = { meters: clampedMeters, pct, riskLabel, riskClass };
+  _floodEvent(result);
+  return result;
+}
+
+/**
+ * Convenience: set flood level by fraction (0 = min elev, 1 = max elev).
+ * @param {number} frac – 0..1
+ */
+export function setFloodLevelPct(frac) {
+  const meters = _flood.minElev + frac * (_flood.maxElev - _flood.minElev);
+  return setFloodLevel(meters);
+}
+
+/**
+ * Animates water rising smoothly from the current level to targetMeters.
+ * @param {number} targetMeters
+ * @param {number} durationMs – default 4000ms
+ */
+export function animateFloodRising(targetMeters = null, durationMs = 4000) {
+  if (!_flood.mesh) return;
+  if (_flood.animRaf) cancelAnimationFrame(_flood.animRaf);
+
+  const target = targetMeters ?? _flood.minElev + (_flood.maxElev - _flood.minElev) * 0.75;
+  const startMeters = _flood.currentLevel;
+  const startTime   = performance.now();
+
+  function step(now) {
+    const elapsed = now - startTime;
+    const t       = Math.min(elapsed / durationMs, 1);
+    // Ease-in-out cubic
+    const eased   = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    const current = startMeters + (target - startMeters) * eased;
+    setFloodLevel(current);
+    if (t < 1) {
+      _flood.animRaf = requestAnimationFrame(step);
+    } else {
+      _flood.animRaf = null;
+    }
+  }
+
+  _flood.animRaf = requestAnimationFrame(step);
+}
+
+/**
+ * Stops any in-progress flood animation.
+ */
+export function stopFloodAnimation() {
+  if (_flood.animRaf) {
+    cancelAnimationFrame(_flood.animRaf);
+    _flood.animRaf = null;
+  }
+}
+
+/**
+ * Show or hide the flood water plane.
+ * @returns {boolean} New visible state
+ */
+export function toggleFloodVisible() {
+  _flood.visible = !_flood.visible;
+  if (_flood.mesh) _flood.mesh.visible = _flood.visible;
+  return _flood.visible;
+}
+
+/**
+ * Sets flood visibility explicitly.
+ * @param {boolean} on
+ */
+export function setFloodVisible(on) {
+  _flood.visible = on;
+  if (_flood.mesh) _flood.mesh.visible = on;
+}
+
+/** Returns the current flood state for external queries. */
+export function getFloodState() {
+  return {
+    active:   _flood.visible,
+    meters:   _flood.currentLevel,
+    minElev:  _flood.minElev,
+    maxElev:  _flood.maxElev,
+  };
+}
+
+/**
+ * Dispose the flood simulator — removes water plane from scene.
+ */
+export function disposeFloodSimulator() {
+  if (_flood.animRaf) { cancelAnimationFrame(_flood.animRaf); _flood.animRaf = null; }
+  if (_flood.mesh) {
+    scene.remove(_flood.mesh);
+    _flood.mesh.geometry.dispose();
+    _flood.mesh.material.dispose();
+    _flood.mesh = null;
+  }
+  _flood.visible    = false;
+  _flood.elevPixels = null;
+  _flood.rippleTime = 0;
+}
+
 export function setSunAngle(degrees) {
   sunAngle = degrees;
   const rad = THREE.MathUtils.degToRad(degrees);
@@ -427,6 +661,23 @@ function _startRenderLoop() {
       camera.lookAt(0, 0.2, 0);
     } else {
       controls.update();
+    }
+
+    // ── Flood water ripple animation ──────────────────────────────────
+    if (_flood.mesh && _flood.mesh.visible) {
+      _flood.rippleTime += 0.008;
+      // Gently undulate the water Y position for a subtle wave effect
+      const baseY = _flood.mesh.position.y;
+      _flood.mesh.position.y = baseY + Math.sin(_flood.rippleTime * 2.1) * 0.002;
+      // Oscillate opacity slightly
+      _flood.mesh.material.opacity = 0.52 + Math.sin(_flood.rippleTime * 1.7) * 0.06;
+      // Reset Y drift each frame (we only want the sin offset, not accumulation)
+      _flood.mesh.position.y = (() => {
+        const range = _flood.maxElev - _flood.minElev || 1;
+        const normElev = (_flood.currentLevel - _flood.minElev) / range;
+        return normElev * _flood.dispScale + _flood.dispBias
+             + Math.sin(_flood.rippleTime * 2.1) * 0.003;
+      })();
     }
 
     renderer.render(scene, camera);

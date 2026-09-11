@@ -747,3 +747,193 @@ input[type="range"] {
   font-family: monospace;
 }
 
+/* ================================================================
+   Flood Level Simulation Panel
+   ================================================================ */
+.flood-panel {
+  margin-top: 16px;
+  background: linear-gradient(135deg,
+    rgba(0, 45, 90, 0.55) 0%,
+    rgba(13, 20, 36, 0.85) 100%);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(0, 119, 182, 0.35);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 0 40px rgba(0, 119, 182, 0.08) inset;
+}
+
+.flood-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(0, 119, 182, 0.25);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.flood-panel-icon {
+  font-size: 1.3rem;
+  filter: drop-shadow(0 0 6px rgba(0, 180, 255, 0.5));
+}
+
+.flood-panel-title {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+/* ── Stats row ─────────────────────────────────────────────────── */
+.flood-stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.flood-stat {
+  background: rgba(0, 119, 182, 0.1);
+  border: 1px solid rgba(0, 119, 182, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.flood-stat-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.flood-stat-value {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: #48cae4;
+  letter-spacing: 0.03em;
+}
+
+/* ── Risk badge ────────────────────────────────────────────────── */
+.flood-risk-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 100px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  border: 1px solid;
+}
+.flood-risk-badge.risk-safe         { background: rgba(16,185,129,0.15); color: #10b981; border-color: rgba(16,185,129,0.4); }
+.flood-risk-badge.risk-low          { background: rgba(132,204,22,0.15);  color: #84cc16; border-color: rgba(132,204,22,0.4); }
+.flood-risk-badge.risk-moderate     { background: rgba(245,158,11,0.15); color: #f59e0b; border-color: rgba(245,158,11,0.4); }
+.flood-risk-badge.risk-severe       { background: rgba(249,115,22,0.15); color: #f97316; border-color: rgba(249,115,22,0.4); }
+.flood-risk-badge.risk-extreme      { background: rgba(239,68,68,0.15);  color: #ef4444; border-color: rgba(239,68,68,0.4); }
+.flood-risk-badge.risk-catastrophic { background: rgba(124,58,237,0.2);  color: #c084fc; border-color: rgba(124,58,237,0.5); }
+
+/* ── Slider ────────────────────────────────────────────────────── */
+.flood-slider-group {
+  background: rgba(0, 119, 182, 0.07);
+  border: 1px solid rgba(0, 119, 182, 0.15);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.flood-slider-ticks {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+/* ── Scenario presets & animate ────────────────────────────────── */
+.flood-scenarios {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.flood-scenarios-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+
+.flood-preset-btn {
+  background: rgba(0, 119, 182, 0.12) !important;
+  border: 1px solid rgba(0, 180, 255, 0.25) !important;
+  color: #48cae4 !important;
+  font-weight: 600 !important;
+  transition: var(--transition);
+}
+.flood-preset-btn:hover {
+  background: rgba(0, 119, 182, 0.3) !important;
+  border-color: rgba(0, 180, 255, 0.6) !important;
+  color: #90e0ef !important;
+  box-shadow: 0 0 12px rgba(0, 180, 255, 0.25);
+}
+
+.flood-animate-btn {
+  background: linear-gradient(135deg, #0077b6, #00b4d8) !important;
+  color: #fff !important;
+  font-weight: 600 !important;
+  border: none !important;
+  padding: 5px 14px !important;
+  margin-left: auto;
+  box-shadow: 0 0 16px rgba(0, 180, 216, 0.35);
+  transition: var(--transition);
+}
+.flood-animate-btn:hover {
+  background: linear-gradient(135deg, #0096c7, #48cae4) !important;
+  box-shadow: 0 0 24px rgba(0, 180, 216, 0.55);
+  transform: translateY(-1px);
+}
+
+/* ── Submergence progress bar ──────────────────────────────────── */
+.flood-bar-wrap {
+  margin-top: 2px;
+}
+
+.flood-bar-track {
+  position: relative;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 100px;
+  overflow: hidden;
+}
+
+.flood-bar-fill {
+  height: 100%;
+  border-radius: 100px;
+  background: linear-gradient(90deg, #10b981, #34d399);
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              background 0.35s ease;
+}
+
+.flood-bar-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.9);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+
