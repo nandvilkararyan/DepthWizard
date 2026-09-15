@@ -14,6 +14,7 @@ let cesiumViewer = null;
 let currentMeshEntity = null;
 let currentGroundDrapeEntity = null;
 let currentImageryLayer = null;
+let currentHeightPrimitive = null;
 
 // Interactive measurement state
 let measureHandler = null;
@@ -26,81 +27,81 @@ let currentGlbUrl = null;
 let currentOpticalUrl = null;
 let currentDepthUrl = null;
 let currentMetadata = null;
-let currentDrapeMode = 'optical'; // 'optical', 'depth', 'mesh_only', 'globe_only'
-let currentLandmarkKey = 'grand_canyon';
+let currentDrapeMode = "optical"; // 'optical', 'depth', 'mesh_only', 'globe_only'
+let currentLandmarkKey = "grand_canyon";
 
 let currentParams = {
   heightOffset: 0,
   scaleMultiplier: 1.0,
-  solarHour: 14.0
+  solarHour: 14.0,
 };
 
 // Earth Landmark Presets (west, south, east, north, baseHeight in meters, default cam height)
 export const LANDMARK_PRESETS = {
   auto: {
-    name: 'Georeferenced Bounds (Auto)',
-    bounds: [-112.18, 36.03, -112.10, 36.08],
+    name: "Georeferenced Bounds (Auto)",
+    bounds: [-112.18, 36.03, -112.1, 36.08],
     center: [-112.14, 36.055],
     baseHeight: 1500,
     camHeight: 3500,
-    scaleMultiplier: 250.0
+    scaleMultiplier: 250.0,
   },
   grand_canyon: {
-    name: 'Grand Canyon National Park, Arizona',
-    bounds: [-112.18, 36.03, -112.10, 36.08],
+    name: "Grand Canyon National Park, Arizona",
+    bounds: [-112.18, 36.03, -112.1, 36.08],
     center: [-112.14, 36.055],
     baseHeight: 1500,
     camHeight: 3500,
-    scaleMultiplier: 300.0
+    scaleMultiplier: 300.0,
   },
   mount_everest: {
-    name: 'Mount Everest, Himalayas',
+    name: "Mount Everest, Himalayas",
     bounds: [86.91, 27.97, 86.95, 28.01],
     center: [86.93, 27.99],
     baseHeight: 7500,
     camHeight: 11000,
-    scaleMultiplier: 450.0
+    scaleMultiplier: 450.0,
   },
   mount_fuji: {
-    name: 'Mount Fuji, Japan',
+    name: "Mount Fuji, Japan",
     bounds: [138.71, 35.34, 138.75, 35.38],
     center: [138.73, 35.36],
     baseHeight: 2800,
     camHeight: 6000,
-    scaleMultiplier: 350.0
+    scaleMultiplier: 350.0,
   },
   yosemite: {
-    name: 'Yosemite Valley, California',
+    name: "Yosemite Valley, California",
     bounds: [-119.62, 37.71, -119.55, 37.76],
     center: [-119.585, 37.735],
     baseHeight: 1200,
     camHeight: 4000,
-    scaleMultiplier: 300.0
+    scaleMultiplier: 300.0,
   },
   meteor_crater: {
-    name: 'Meteor Crater, Arizona',
-    bounds: [-111.033, 35.020, -111.013, 35.035],
+    name: "Meteor Crater, Arizona",
+    bounds: [-111.033, 35.02, -111.013, 35.035],
     center: [-111.023, 35.027],
     baseHeight: 1650,
     camHeight: 2800,
-    scaleMultiplier: 180.0
+    scaleMultiplier: 180.0,
   },
   swiss_alps: {
-    name: 'Matterhorn, Swiss Alps',
+    name: "Matterhorn, Swiss Alps",
     bounds: [7.64, 45.96, 7.68, 45.99],
     center: [7.66, 45.975],
     baseHeight: 3200,
     camHeight: 6500,
-    scaleMultiplier: 350.0
+    scaleMultiplier: 350.0,
   },
   hawaii_volcano: {
-    name: 'Kilauea Crater, Hawaii',
-    bounds: [-155.30, 19.39, -155.26, 19.43],
+    name: "Kilauea Crater, Hawaii",
+    bounds: [-155.3, 19.39, -155.26, 19.43],
     center: [-155.28, 19.41],
     baseHeight: 1000,
     camHeight: 3500,
-    scaleMultiplier: 280.0
-  }
+    scaleMultiplier: 280.0,
+  },
 };
 
 /**
@@ -111,7 +112,8 @@ export function initCesiumViewer(containerEl) {
 
   // Set default Cesium Ion access token
   if (window.Cesium && Cesium.Ion && !Cesium.Ion.defaultAccessToken) {
-    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMDA5NGZjMy1hODdiLTQ0OWUtOGI4MS0yMmE3ODc0NzgwMWUiLCJpZCI6MjU0MzEsImlhdCI6MTU4ODgwNTY3OX0.1Zg-rQc0q6oKzLwOQ9N5-8N0N6P5x6u0';
+    Cesium.Ion.defaultAccessToken =
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMDA5NGZjMy1hODdiLTQ0OWUtOGI4MS0yMmE3ODc0NzgwMWUiLCJpZCI6MjU0MzEsImlhdCI6MTU4ODgwNTY3OX0.1Zg-rQc0q6oKzLwOQ9N5-8N0N6P5x6u0";
   }
 
   try {
@@ -126,19 +128,21 @@ export function initCesiumViewer(containerEl) {
       infoBox: false,
       selectionIndicator: false,
       shadows: true,
-      terrainProvider: Cesium.createWorldTerrain ? Cesium.createWorldTerrain({
-        requestWaterMask: true,
-        requestVertexNormals: true
-      }) : undefined
+      terrainProvider: Cesium.createWorldTerrain
+        ? Cesium.createWorldTerrain({
+            requestWaterMask: true,
+            requestVertexNormals: true,
+          })
+        : undefined,
     });
   } catch (err) {
-    console.warn('[CesiumViewer] Fallback viewer init:', err);
+    console.warn("[CesiumViewer] Fallback viewer init:", err);
     cesiumViewer = new Cesium.Viewer(containerEl, {
       animation: false,
       timeline: false,
       baseLayerPicker: true,
       infoBox: false,
-      selectionIndicator: false
+      selectionIndicator: false,
     });
   }
 
@@ -148,7 +152,7 @@ export function initCesiumViewer(containerEl) {
   scene.fog.enabled = true;
   scene.highDynamicRange = true;
 
-  console.log('[CesiumViewer] Geospatial graphics engine initialized.');
+  console.log("[CesiumViewer] Geospatial graphics engine initialized.");
   return cesiumViewer;
 }
 
@@ -169,8 +173,11 @@ export async function loadCesiumModel(glbUrl, textureUrl, depthUrl, metadata) {
 
   if (isGeo && bounds && bounds.length >= 4) {
     LANDMARK_PRESETS.auto.bounds = bounds;
-    LANDMARK_PRESETS.auto.center = [(bounds[0] + bounds[2]) / 2.0, (bounds[1] + bounds[3]) / 2.0];
-    currentLandmarkKey = 'auto';
+    LANDMARK_PRESETS.auto.center = [
+      (bounds[0] + bounds[2]) / 2.0,
+      (bounds[1] + bounds[3]) / 2.0,
+    ];
+    currentLandmarkKey = "auto";
   }
 
   await updateCesiumScene();
@@ -195,70 +202,116 @@ export async function updateCesiumScene() {
     cesiumViewer.imageryLayers.remove(currentImageryLayer);
     currentImageryLayer = null;
   }
+  if (currentHeightPrimitive) {
+    cesiumViewer.scene.primitives.remove(currentHeightPrimitive);
+    currentHeightPrimitive = null;
+  }
 
   // Active landmark location bounds
-  const preset = LANDMARK_PRESETS[currentLandmarkKey] || LANDMARK_PRESETS.grand_canyon;
+  const preset =
+    LANDMARK_PRESETS[currentLandmarkKey] || LANDMARK_PRESETS.grand_canyon;
   const bounds = preset.bounds;
-  const west = bounds[0], south = bounds[1], east = bounds[2], north = bounds[3];
+  const west = bounds[0],
+    south = bounds[1],
+    east = bounds[2],
+    north = bounds[3];
   const centerLon = preset.center ? preset.center[0] : (west + east) / 2.0;
   const centerLat = preset.center ? preset.center[1] : (south + north) / 2.0;
   const rect = Cesium.Rectangle.fromDegrees(west, south, east, north);
 
-  const activeTexture = (currentDrapeMode === 'depth') ? (currentDepthUrl || currentOpticalUrl) : currentOpticalUrl;
+  const activeTexture =
+    currentDrapeMode === "depth"
+      ? currentDepthUrl || currentOpticalUrl
+      : currentOpticalUrl;
 
   // 1. Drape high-res optical satellite image or depth map directly on Earth globe terrain
-  if (activeTexture && (currentDrapeMode === 'optical' || currentDrapeMode === 'depth' || currentDrapeMode === 'globe_only')) {
+  if (
+    activeTexture &&
+    (currentDrapeMode === "optical" ||
+      currentDrapeMode === "depth" ||
+      currentDrapeMode === "globe_only")
+  ) {
     // Add classification ground rectangle entity
     currentGroundDrapeEntity = cesiumViewer.entities.add({
-      name: 'DepthWizard Draped Satellite Surface',
+      name: "DepthWizard Draped Satellite Surface",
       rectangle: {
         coordinates: rect,
         material: new Cesium.ImageMaterialProperty({
           image: activeTexture,
-          transparent: true
+          transparent: true,
         }),
-        classificationType: Cesium.ClassificationType.BOTH
-      }
+        classificationType: Cesium.ClassificationType.BOTH,
+      },
     });
 
     // Add ImageryProvider layer for crisp tile rendering across globe zoom levels
     try {
       if (Cesium.SingleTileImageryProvider.fromUrl) {
-        Cesium.SingleTileImageryProvider.fromUrl(activeTexture, { rectangle: rect })
-          .then(provider => {
+        Cesium.SingleTileImageryProvider.fromUrl(activeTexture, {
+          rectangle: rect,
+        })
+          .then((provider) => {
             if (cesiumViewer && !cesiumViewer.isDestroyed()) {
-              currentImageryLayer = cesiumViewer.imageryLayers.addImageryProvider(provider);
+              currentImageryLayer =
+                cesiumViewer.imageryLayers.addImageryProvider(provider);
+              console.log("[CesiumViewer] Imagery layer loaded successfully");
             }
           })
-          .catch(() => {});
+          .catch((err) => {
+            console.error("[CesiumViewer] Imagery provider load failed:", err);
+          });
       } else {
         const provider = new Cesium.SingleTileImageryProvider({
           url: activeTexture,
-          rectangle: rect
+          rectangle: rect,
         });
-        currentImageryLayer = cesiumViewer.imageryLayers.addImageryProvider(provider);
+        currentImageryLayer =
+          cesiumViewer.imageryLayers.addImageryProvider(provider);
+        console.log("[CesiumViewer] Imagery layer loaded (legacy path)");
       }
     } catch (err) {
-      console.warn('[CesiumViewer] Imagery drape warning:', err);
+      console.error("[CesiumViewer] Imagery drape warning:", err);
     }
   }
 
+  if (currentDepthUrl && currentDrapeMode !== "globe_only") {
+    // Hide default globe terrain when rendering custom heightmap to prevent stacking
+    cesiumViewer.scene.globe.show = false;
+    await _addHeightmapPrimitive(
+      rect,
+      currentDepthUrl,
+      preset,
+      centerLon,
+      centerLat,
+    );
+  } else {
+    // Show globe terrain in globe-only mode
+    cesiumViewer.scene.globe.show = true;
+  }
+
   // 2. Position 3D GLB mesh clamped to ground at landmark coordinates
-  if (currentGlbUrl && currentDrapeMode !== 'globe_only') {
+  if (currentGlbUrl && currentDrapeMode !== "globe_only") {
     const baseAlt = (preset.baseHeight || 1000) + currentParams.heightOffset;
-    const position = Cesium.Cartesian3.fromDegrees(centerLon, centerLat, baseAlt);
+    const position = Cesium.Cartesian3.fromDegrees(
+      centerLon,
+      centerLat,
+      baseAlt,
+    );
 
     const heading = Cesium.Math.toRadians(0);
     const pitch = 0;
     const roll = 0;
     const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll);
-    const orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr);
+    const orientation = Cesium.Transforms.headingPitchRollQuaternion(
+      position,
+      hpr,
+    );
 
     const baseScale = preset.scaleMultiplier || 250.0;
     const finalScale = baseScale * currentParams.scaleMultiplier;
 
     currentMeshEntity = cesiumViewer.entities.add({
-      name: 'DepthWizard 3D Terrain Mesh',
+      name: "DepthWizard 3D Terrain Mesh",
       position: position,
       orientation: orientation,
       model: {
@@ -267,25 +320,136 @@ export async function updateCesiumScene() {
         maximumScale: 50000,
         scale: finalScale,
         heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-        shadows: Cesium.ShadowMode.ENABLED
-      }
+        shadows: Cesium.ShadowMode.ENABLED,
+      },
     });
   }
 
   // 3. Fly camera to landmark location with optimal perspective tilt
   const camDist = preset.camHeight || 4000;
   cesiumViewer.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(centerLon, centerLat - 0.02, camDist),
+    destination: Cesium.Cartesian3.fromDegrees(
+      centerLon,
+      centerLat - 0.02,
+      camDist,
+    ),
     orientation: {
       heading: Cesium.Math.toRadians(0),
       pitch: Cesium.Math.toRadians(-35),
-      roll: 0
+      roll: 0,
     },
-    duration: 1.8
+    duration: 1.8,
   });
 
   // Apply solar lighting
   setCesiumSolarTime(currentParams.solarHour);
+}
+
+async function _addHeightmapPrimitive(
+  rect,
+  heightmapUrl,
+  preset,
+  centerLon,
+  centerLat,
+) {
+  console.log("[CesiumViewer] Adding heightmap primitive with bounds:", rect);
+  console.log("[CesiumViewer] Center coordinates:", centerLon, centerLat);
+  
+  const image = await new Promise((resolve, reject) => {
+    const element = new Image();
+    element.crossOrigin = "anonymous";
+    element.onload = () => resolve(element);
+    element.onerror = reject;
+    element.src = heightmapUrl;
+  }).catch(() => null);
+  if (!image || !cesiumViewer || cesiumViewer.isDestroyed()) return;
+
+  const size = 96;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  context.drawImage(image, 0, 0, size, size);
+  const pixels = context.getImageData(0, 0, size, size).data;
+  
+  // Sanitize: no hard border-clamping. The pixel array is read as-is from the
+  // downscaled image. Clamping border pixels to a single interior value would
+  // create a uniform-height ring that renders as a sheer cliff wall.
+  // (Any true spatial outliers are handled by the percentile normalization below.)
+  
+  const metrics = currentMetadata?.elevation_metrics || {};
+  const minElevation = Number(metrics.min_elevation_meters || 0);
+  const elevationRange = Number(metrics.elevation_range_meters || 1);
+  const baseHeight =
+    Number(preset.baseHeight || 0) + currentParams.heightOffset;
+  const positions = new Float64Array(size * size * 3);
+  const st = new Float32Array(size * size * 2);
+  const indices = [];
+  const west = Cesium.Math.toDegrees(rect.west);
+  const south = Cesium.Math.toDegrees(rect.south);
+  const east = Cesium.Math.toDegrees(rect.east);
+  const north = Cesium.Math.toDegrees(rect.north);
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const index = y * size + x;
+      // The backend inverts depth→elevation so bright pixels = high elevation. Read straight.
+      const normalized = pixels[index * 4] / 255;
+      const lon = west + (x / (size - 1)) * (east - west);
+      const lat = north - (y / (size - 1)) * (north - south);
+      const cartesian = Cesium.Cartesian3.fromDegrees(
+        lon,
+        lat,
+        baseHeight + minElevation + normalized * elevationRange,
+      );
+      positions[index * 3] = cartesian.x;
+      positions[index * 3 + 1] = cartesian.y;
+      positions[index * 3 + 2] = cartesian.z;
+      st[index * 2] = x / (size - 1);
+      st[index * 2 + 1] = 1 - y / (size - 1);
+    }
+  }
+  for (let y = 0; y < size - 1; y++) {
+    for (let x = 0; x < size - 1; x++) {
+      const a = y * size + x;
+      const b = a + 1;
+      const c = a + size;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+
+  const geometry = new Cesium.Geometry({
+    attributes: {
+      position: new Cesium.GeometryAttribute({
+        componentDatatype: Cesium.ComponentDatatype.DOUBLE,
+        componentsPerAttribute: 3,
+        values: positions,
+      }),
+      st: new Cesium.GeometryAttribute({
+        componentDatatype: Cesium.ComponentDatatype.FLOAT,
+        componentsPerAttribute: 2,
+        values: st,
+      }),
+    },
+    indices: new Uint32Array(indices),
+    primitiveType: Cesium.PrimitiveType.TRIANGLES,
+    boundingSphere: Cesium.BoundingSphere.fromVertices(positions),
+  });
+  currentHeightPrimitive = cesiumViewer.scene.primitives.add(
+    new Cesium.Primitive({
+      geometryInstances: new Cesium.GeometryInstance({ geometry }),
+      appearance: new Cesium.MaterialAppearance({
+        material: Cesium.Material.fromType("Image", {
+          image: currentOpticalUrl || heightmapUrl,
+        }),
+        faceForward: true,
+        closed: false,
+      }),
+      asynchronous: false,
+      releaseGeometryInstances: true,
+    }),
+  );
 }
 
 /**
@@ -293,17 +457,27 @@ export async function updateCesiumScene() {
  */
 export function updateCesiumModelTransform({ heightOffset, scaleMultiplier }) {
   if (heightOffset !== undefined) currentParams.heightOffset = heightOffset;
-  if (scaleMultiplier !== undefined) currentParams.scaleMultiplier = scaleMultiplier;
+  if (scaleMultiplier !== undefined)
+    currentParams.scaleMultiplier = scaleMultiplier;
 
   if (!cesiumViewer || !currentMeshEntity) return;
 
-  const preset = LANDMARK_PRESETS[currentLandmarkKey] || LANDMARK_PRESETS.grand_canyon;
+  const preset =
+    LANDMARK_PRESETS[currentLandmarkKey] || LANDMARK_PRESETS.grand_canyon;
   const bounds = preset.bounds;
-  const centerLon = preset.center ? preset.center[0] : (bounds[0] + bounds[2]) / 2.0;
-  const centerLat = preset.center ? preset.center[1] : (bounds[1] + bounds[3]) / 2.0;
+  const centerLon = preset.center
+    ? preset.center[0]
+    : (bounds[0] + bounds[2]) / 2.0;
+  const centerLat = preset.center
+    ? preset.center[1]
+    : (bounds[1] + bounds[3]) / 2.0;
 
   const baseAlt = (preset.baseHeight || 1000) + currentParams.heightOffset;
-  currentMeshEntity.position = Cesium.Cartesian3.fromDegrees(centerLon, centerLat, baseAlt);
+  currentMeshEntity.position = Cesium.Cartesian3.fromDegrees(
+    centerLon,
+    centerLat,
+    baseAlt,
+  );
 
   const baseScale = preset.scaleMultiplier || 250.0;
   currentMeshEntity.model.scale = baseScale * currentParams.scaleMultiplier;
@@ -336,7 +510,16 @@ export function setCesiumSolarTime(hourFloat) {
   const now = new Date();
   const hour = Math.floor(hourFloat);
   const minute = Math.floor((hourFloat - hour) * 60);
-  const utcDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hour, minute, 0));
+  const utcDate = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      hour,
+      minute,
+      0,
+    ),
+  );
 
   cesiumViewer.clock.currentTime = Cesium.JulianDate.fromDate(utcDate);
   cesiumViewer.scene.globe.enableLighting = true;
@@ -361,7 +544,9 @@ export function toggleCesiumMeasurement(enable, onUpdateCallback) {
     return;
   }
 
-  measureHandler = new Cesium.ScreenSpaceEventHandler(cesiumViewer.scene.canvas);
+  measureHandler = new Cesium.ScreenSpaceEventHandler(
+    cesiumViewer.scene.canvas,
+  );
 
   measureHandler.setInputAction((click) => {
     const scene = cesiumViewer.scene;
@@ -386,21 +571,21 @@ export function toggleCesiumMeasurement(enable, onUpdateCallback) {
       position: cartesian,
       point: {
         pixelSize: 12,
-        color: Cesium.Color.fromCssColorString('#00d4ff'),
+        color: Cesium.Color.fromCssColorString("#00d4ff"),
         outlineColor: Cesium.Color.WHITE,
         outlineWidth: 2,
-        disableDepthTestDistance: Number.POSITIVE_INFINITY
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
       },
       label: {
         text: `P${measurePoints.length} (${height.toFixed(1)}m)`,
-        font: 'bold 12px Inter, sans-serif',
+        font: "bold 12px Inter, sans-serif",
         fillColor: Cesium.Color.WHITE,
         outlineColor: Cesium.Color.BLACK,
         outlineWidth: 3,
         style: Cesium.LabelStyle.FILL_AND_OUTLINE,
         pixelOffset: new Cesium.Cartesian2(0, -18),
-        disableDepthTestDistance: Number.POSITIVE_INFINITY
-      }
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
     });
     measureEntities.push(pEntity);
 
@@ -415,9 +600,9 @@ export function toggleCesiumMeasurement(enable, onUpdateCallback) {
           width: 4,
           material: new Cesium.PolylineGlowMaterialProperty({
             glowPower: 0.25,
-            color: Cesium.Color.fromCssColorString('#00d4ff')
-          })
-        }
+            color: Cesium.Color.fromCssColorString("#00d4ff"),
+          }),
+        },
       });
       measureEntities.push(lineEntity);
 
@@ -432,7 +617,7 @@ export function toggleCesiumMeasurement(enable, onUpdateCallback) {
           distanceKm: dist / 1000.0,
           elevDeltaMeters: elevDelta,
           slopeDegrees: slope,
-          pointsCount: measurePoints.length
+          pointsCount: measurePoints.length,
         });
       }
     }
@@ -444,7 +629,7 @@ export function toggleCesiumMeasurement(enable, onUpdateCallback) {
  */
 export function clearCesiumMeasurement() {
   if (!cesiumViewer) return;
-  measureEntities.forEach(e => cesiumViewer.entities.remove(e));
+  measureEntities.forEach((e) => cesiumViewer.entities.remove(e));
   measureEntities = [];
   measurePoints = [];
 }
@@ -463,6 +648,7 @@ export function disposeCesiumViewer() {
     currentMeshEntity = null;
     currentGroundDrapeEntity = null;
     currentImageryLayer = null;
+    currentHeightPrimitive = null;
     measureEntities = [];
     measurePoints = [];
   }

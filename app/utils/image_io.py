@@ -8,6 +8,76 @@ import rasterio
 from rasterio.crs import CRS
 from rasterio.transform import Affine
 
+# Hard cap on either image dimension — applied immediately after load,
+# BEFORE any tiling or depth estimation.  Keeps processing time bounded.
+MAX_IMAGE_DIM = 1024
+
+
+def _downscale_if_needed(
+    rgb_image: np.ndarray,
+    geo_meta: "GeoMetadata",
+    max_dim: int = MAX_IMAGE_DIM,
+) -> Tuple[np.ndarray, "GeoMetadata"]:
+    """
+    If either image dimension exceeds *max_dim*, downscale using LANCZOS
+    resampling to fit within the cap.  For georeferenced images the
+    geographic bounds stay the same — only the pixel resolution changes
+    (the affine transform is recomputed).
+
+    Returns the (possibly resized) image and updated GeoMetadata.
+    """
+    h, w = rgb_image.shape[:2]
+    if h <= max_dim and w <= max_dim:
+        return rgb_image, geo_meta          # no resize needed
+
+    scale = max_dim / max(h, w)
+    new_w = int(round(w * scale))
+    new_h = int(round(h * scale))
+
+    print(
+        f"[ImageIO] Downscaling image from {w}×{h} → {new_w}×{new_h} "
+        f"(max_dim={max_dim}, scale={scale:.4f})"
+    )
+
+    # Use PIL LANCZOS for high-quality downscale
+    pil_img = Image.fromarray(rgb_image)
+    pil_img = pil_img.resize((new_w, new_h), Image.LANCZOS)
+    rgb_image = np.array(pil_img, dtype=np.uint8)
+
+    # Update GeoMetadata to reflect new pixel dimensions while keeping
+    # the same geographic bounds (only pixel_size changes).
+    if geo_meta.is_georeferenced and geo_meta.transform and geo_meta.bounds:
+        left, bottom, right, top = geo_meta.bounds
+        new_pixel_w = (right - left) / new_w
+        new_pixel_h = (top - bottom) / new_h
+        # Affine: (pixel_size_x, 0, origin_x, 0, -pixel_size_y, origin_y)
+        new_transform = (new_pixel_w, 0.0, left, 0.0, -new_pixel_h, top)
+        geo_meta = GeoMetadata(
+            is_georeferenced=geo_meta.is_georeferenced,
+            crs=geo_meta.crs,
+            transform=new_transform,
+            bounds=geo_meta.bounds,       # unchanged
+            width=new_w,
+            height=new_h,
+            nodata=geo_meta.nodata,
+        )
+        print(
+            f"[ImageIO] GeoTIFF bounds preserved: {geo_meta.bounds}, "
+            f"new pixel size: {new_pixel_w:.8f}×{new_pixel_h:.8f}"
+        )
+    else:
+        geo_meta = GeoMetadata(
+            is_georeferenced=geo_meta.is_georeferenced,
+            crs=geo_meta.crs,
+            transform=geo_meta.transform,
+            bounds=geo_meta.bounds,
+            width=new_w,
+            height=new_h,
+            nodata=geo_meta.nodata,
+        )
+
+    return rgb_image, geo_meta
+
 
 @dataclass
 class GeoMetadata:
@@ -98,7 +168,7 @@ def load_optical_image(filepath: str) -> Tuple[np.ndarray, GeoMetadata]:
             else:
                 rgb_image = img_data.astype(np.uint8)
 
-            return rgb_image, geo_meta
+            return _downscale_if_needed(rgb_image, geo_meta)
 
     except Exception:
         # Fallback to OpenCV / PIL for standard non-geospatial formats (PNG, JPG)
@@ -116,7 +186,7 @@ def load_optical_image(filepath: str) -> Tuple[np.ndarray, GeoMetadata]:
             height=rgb_image.shape[0]
         )
 
-        return rgb_image, geo_meta
+        return _downscale_if_needed(rgb_image, geo_meta)
 
 
 def load_reference_dem(dem_filepath: str) -> Tuple[np.ndarray, GeoMetadata]:

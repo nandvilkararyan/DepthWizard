@@ -1,5 +1,6 @@
 import math
 from typing import Optional, Tuple
+import cv2
 import numpy as np
 from PIL import Image
 import torch
@@ -44,6 +45,12 @@ class DepthExtractor:
         self.model = AutoModelForDepthEstimation.from_pretrained(self.model_id)
         self.model.to(self.device)
         self.model.eval()
+        self.last_water_mask: Optional[np.ndarray] = None
+        self.last_depth_uint8: Optional[np.ndarray] = None
+        # Raw model output statistics (before normalization) — used by ScaleCalibrator
+        # to derive meaningful elevation ranges instead of hardcoded 0–100.
+        self.last_raw_min: float = 0.0
+        self.last_raw_max: float = 1.0
 
     @staticmethod
     def create_2d_hann_window(height: int, width: int) -> np.ndarray:
@@ -91,11 +98,44 @@ class DepthExtractor:
         prediction = F.interpolate(
             predicted_depth,
             size=(h_orig, w_orig),
-            mode="bicubic",
+            mode="bilinear",
             align_corners=False,
         )
 
         depth_np = prediction.squeeze().cpu().numpy().astype(np.float32)
+        finite = np.isfinite(depth_np)
+        raw_min = float(np.min(depth_np[finite])) if np.any(finite) else 0.0
+        raw_max = float(np.max(depth_np[finite])) if np.any(finite) else 0.0
+        raw_mean = float(np.mean(depth_np[finite])) if np.any(finite) else 0.0
+        print(
+            f"[DepthExtractor] Raw Depth Stats -> Min: {raw_min:.4f}, "
+            f"Max: {raw_max:.4f}, Mean: {raw_mean:.4f}"
+        )
+
+        if not np.any(finite) or raw_max - raw_min <= 1e-8:
+            # A broken/constant model output cannot calibrate or colorize. Use
+            # image luminance as a deterministic non-empty relative-depth proxy.
+            fallback = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2GRAY).astype(np.float32)
+            fallback_min = float(np.min(fallback))
+            fallback_range = float(np.ptp(fallback))
+            depth_np = (fallback - fallback_min) / max(fallback_range, 1.0)
+            self.last_raw_min = fallback_min
+            self.last_raw_max = fallback_min + max(fallback_range, 1.0)
+        else:
+            self.last_raw_min = raw_min
+            self.last_raw_max = raw_max
+            depth_np = np.nan_to_num(depth_np, nan=raw_mean, posinf=raw_max, neginf=raw_min)
+            depth_np = (depth_np - raw_min) / (raw_max - raw_min + 1e-8)
+
+        depth_np = np.clip(depth_np, 0.0, 1.0).astype(np.float32)
+        
+        # Handle black nodata satellite padding borders
+        black_mask = np.all(rgb_image <= 5, axis=2)
+        if np.any(black_mask) and np.any(~black_mask):
+            valid_floor = float(np.percentile(depth_np[~black_mask], 2.0))
+            depth_np[black_mask] = valid_floor
+            
+        self.last_depth_uint8 = np.round(depth_np * 255.0).astype(np.uint8)
         return depth_np
 
     def extract_depth(
@@ -105,73 +145,64 @@ class DepthExtractor:
         overlap_ratio: float = 0.20
     ) -> np.ndarray:
         """
-        Runs depth extraction using tiled sliding-window inference with 2D Hann blending
-        for large satellite tiles.
-
-        Args:
-            rgb_image: uint8 numpy array of shape (H, W, 3) in RGB format.
-            tile_size: Height/width of square sliding window tiles.
-            overlap_ratio: Fraction of tile size to overlap (e.g. 0.20 = 20% overlap).
-
-        Returns:
-            2D float32 numpy array of relative depth predictions of shape (H, W).
+        Runs depth extraction on the entire image in a single pass.
+        
+        Note: We intentionally bypass tiling. Monocular depth models rely on global 
+        context. Slicing the image into tiles causes the model to predict completely 
+        different relative depth scales for each tile, which creates severe blocky seams 
+        and spikes when blended. Because image_io.py already caps the input size to 
+        1024px, a single full-image pass is fast, VRAM-safe, and guarantees smooth, 
+        globally consistent terrain geometry.
         """
-        img_h, img_w = rgb_image.shape[:2]
+        print(f"[DepthExtractor] Running full-image depth extraction (shape={rgb_image.shape[:2]})...")
+        depth = self.infer_single_image(rgb_image)
+        return self._correct_water_depth(rgb_image, depth)
 
-        # If image fits within a single tile, run direct inference
-        if img_h <= tile_size and img_w <= tile_size:
-            return self.infer_single_image(rgb_image)
+    def _correct_water_depth(self, rgb_image: np.ndarray, depth: np.ndarray) -> np.ndarray:
+        """Suppress the common monocular-depth failure where reflective water is elevated."""
+        image = rgb_image.astype(np.float32) / 255.0
+        gray = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
+        local_mean = cv2.blur(gray, (15, 15))
+        local_sq_mean = cv2.blur(gray * gray, (15, 15))
+        local_std = np.sqrt(np.maximum(local_sq_mean - local_mean * local_mean, 0.0))
+        brightness = np.mean(image, axis=2)
+        blue_green = (image[:, :, 1] + image[:, :, 2]) * 0.5
+        red_suppressed = blue_green >= image[:, :, 0] * 0.92
+        water_mask = (
+            (local_std < 0.075) &
+            (brightness >= np.percentile(brightness, 55)) &
+            red_suppressed
+        )
+        # A large 15x15 OPEN kernel completely eradicates small false-positive 
+        # water detections (like mountain snow or smooth valleys) that cause 
+        # the terrain to turn into a bed of needles.
+        water_mask = cv2.morphologyEx(
+            water_mask.astype(np.uint8), cv2.MORPH_OPEN, np.ones((15, 15), np.uint8)
+        )
+        water_mask = cv2.morphologyEx(
+            water_mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8)
+        ).astype(bool)
+        self.last_water_mask = water_mask
+        if not np.any(water_mask):
+            return depth.astype(np.float32)
 
-        # Calculate stride length based on tile size and overlap
-        overlap_pixels = int(tile_size * overlap_ratio)
-        stride = tile_size - overlap_pixels
-        if stride <= 0:
-            stride = tile_size // 2
-
-        # Create tile origin coordinates
-        y_starts = list(range(0, img_h - tile_size + 1, stride))
-        if len(y_starts) == 0 or y_starts[-1] + tile_size < img_h:
-            y_starts.append(max(0, img_h - tile_size))
-
-        x_starts = list(range(0, img_w - tile_size + 1, stride))
-        if len(x_starts) == 0 or x_starts[-1] + tile_size < img_w:
-            x_starts.append(max(0, img_w - tile_size))
-
-        # Remove duplicate starting positions if any
-        y_starts = sorted(list(set(y_starts)))
-        x_starts = sorted(list(set(x_starts)))
-
-        # Initialize accumulation buffers
-        depth_accum = np.zeros((img_h, img_w), dtype=np.float32)
-        weight_accum = np.zeros((img_h, img_w), dtype=np.float32)
-
-        hann_window = self.create_2d_hann_window(tile_size, tile_size)
-
-        print(f"[DepthExtractor] Tiled processing: {len(y_starts)}x{len(x_starts)} grid, "
-              f"tile_size={tile_size}, overlap={overlap_ratio:.0%}")
-
-        for y in y_starts:
-            for x in x_starts:
-                y_end = min(y + tile_size, img_h)
-                x_end = min(x + tile_size, img_w)
-                tile_h = y_end - y
-                tile_w = x_end - x
-
-                tile_rgb = rgb_image[y:y_end, x:x_end, :]
-
-                # Infer tile depth
-                tile_depth = self.infer_single_image(tile_rgb)
-
-                # Fetch matching window slice if tile was cropped at boundary
-                if tile_h == tile_size and tile_w == tile_size:
-                    win = hann_window
-                else:
-                    win = self.create_2d_hann_window(tile_h, tile_w)
-
-                # Accumulate weighted predictions
-                depth_accum[y:y_end, x:x_end] += tile_depth * win
-                weight_accum[y:y_end, x:x_end] += win
-
-        # Normalize by total accumulated window weights
-        depth_blended = depth_accum / np.maximum(weight_accum, 1e-6)
-        return depth_blended.astype(np.float32)
+        terrain = depth.copy().astype(np.float32)
+        non_water = ~water_mask & np.isfinite(terrain)
+        if not np.any(non_water):
+            return terrain
+        local_floor = float(np.percentile(terrain[non_water], 5.0))
+        
+        # OpenCV converts np.inf to FLT_MAX (3.4e38), which np.isfinite considers True!
+        # This causes FLT_MAX to leak into the depth map. Use a dummy value instead.
+        dummy_max = 10000.0
+        masked = np.where(non_water, terrain, dummy_max).astype(np.float32)
+        
+        kernel = np.ones((31, 31), np.uint8)
+        neighbourhood_floor = cv2.erode(masked, kernel)
+        
+        # If erode returns dummy_max, the 31x31 area was purely water; use global local_floor
+        valid_floor = neighbourhood_floor < (dummy_max - 1.0)
+        replacement = np.where(valid_floor, neighbourhood_floor, local_floor)
+        
+        terrain[water_mask] = replacement[water_mask]
+        return terrain.astype(np.float32)
