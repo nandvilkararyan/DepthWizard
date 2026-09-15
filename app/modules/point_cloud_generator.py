@@ -99,7 +99,7 @@ class PointCloudGenerator:
     # Open3D backend
     MAX_POINTS_O3D: int  = 250_000
     POISSON_DEPTH:  int  = 8
-    DENSITY_TRIM:   float = 0.05   # remove lowest 5 % density vertices
+    DENSITY_TRIM:   float = 0.10   # remove lowest 10 % density vertices (trims Poisson hull fringe)
 
     # SciPy/Delaunay backend
     MAX_GRID_RES:   int  = 300     # maximum grid resolution (each axis) for fallback
@@ -143,16 +143,23 @@ class PointCloudGenerator:
         if not self.is_available():
             raise RuntimeError(
                 "No mesh backend available. "
-                "Install open3d (Python ≤ 3.12) or scipy + trimesh."
+                "Install scipy + trimesh (preferred) or open3d."
             )
 
-        if _O3D_OK:
+        # Always use SciPy (Delaunay) backend for 2.5D height fields if available.
+        # Poisson (Open3D) inherently tries to close open surfaces, which causes 
+        # the radial 'sea urchin' ballooning at boundaries. Delaunay guarantees 
+        # a strict, spike-free height-field mesh.
+        if _SCIPY_OK and _TRIMESH_OK:
+            return self._generate_scipy(rgb_image, metric_dsm)
+        elif _O3D_OK:
+            logger.warning("[PointCloudGenerator] Falling back to Open3D Poisson backend. Mesh may exhibit boundary ballooning.")
             return self._generate_open3d(
                 rgb_image, metric_dsm,
                 max_points=max_points or self.MAX_POINTS_O3D
             )
         else:
-            return self._generate_scipy(rgb_image, metric_dsm)
+            raise RuntimeError("Backend unavailable.")
 
     # ------------------------------------------------------------------
     # Backend A — Open3D / Poisson
@@ -170,13 +177,30 @@ class PointCloudGenerator:
         # ── Elevation stats ────────────────────────────────────────────────
         min_elev   = float(np.nanmin(metric_dsm))
         max_elev   = float(np.nanmax(metric_dsm))
-        elev_range = max(max_elev - min_elev, 1.0)
+        logger.info(f"[PointCloudGenerator/O3D] Original range: [{min_elev:.2f}, {max_elev:.2f}]")
+
+        # ── Clamp extreme outliers to prevent edge spikes ──────────────────
+        # Use 1st-99th percentile to remove boundary artifacts.
+        # IMPORTANT: use p1/p99 as normalization bounds too (not min/max),
+        # so y is guaranteed in [0, 1] for all clamped points.
+        p1, p99 = np.nanpercentile(metric_dsm, [1, 99])
+        elev_range = max(float(p99 - p1), 1e-3)
+        metric_dsm_clamped = np.clip(metric_dsm, p1, p99)
+        logger.info(
+            f"[PointCloudGenerator/O3D] Elevation clamped to [{p1:.2f}, {p99:.2f}] "
+            f"(percentile 1–99, range={elev_range:.2f})"
+        )
 
         # ── Build normalized point grid ────────────────────────────────────
+        # Convention:  X ∈ [-1, 1]  — image columns (left→right)
+        #              Y ∈ [ 0, 1]  — elevation (ground→peak)   ← ONLY axis driven by DSM
+        #              Z ∈ [-1, 1]  — image rows  (top→bottom)
+        # X and Z are a flat pixel grid — depth does NOT scale them.
         rows, cols = np.mgrid[0:H, 0:W]
-        x = ((cols.astype(np.float32) / max(W - 1, 1)) - 0.5) * 2.0  # [-1, 1]
-        z = ((rows.astype(np.float32) / max(H - 1, 1)) - 0.5) * 2.0  # [-1, 1]
-        y = (metric_dsm.astype(np.float32) - min_elev) / elev_range   # [ 0, 1]
+        x = ((cols.astype(np.float32) / max(W - 1, 1)) - 0.5) * 2.0   # [-1, 1]
+        z = ((rows.astype(np.float32) / max(H - 1, 1)) - 0.5) * 2.0   # [-1, 1]
+        # Normalize using the clamped p1..p99 bounds so y ∈ [0, 1] exactly
+        y = (metric_dsm_clamped.astype(np.float32) - p1) / elev_range   # [0, 1]
         y = np.where(np.isfinite(y), y, 0.0)
 
         points = np.stack([x.ravel(), y.ravel(), z.ravel()], axis=-1)
@@ -184,12 +208,12 @@ class PointCloudGenerator:
 
         logger.info(f"[PointCloudGenerator/O3D] Raw grid: {len(points):,} points")
 
-        # ── Uniform subsample ──────────────────────────────────────────────
+        # ── Random subsample (preserves spatial distribution) ──────────────
         if len(points) > max_points:
-            step   = max(1, len(points) // max_points)
-            points = points[::step]
-            colors = colors[::step]
-            logger.info(f"[PointCloudGenerator/O3D] Step-sampled → {len(points):,} points")
+            indices = np.random.choice(len(points), max_points, replace=False)
+            points = points[indices]
+            colors = colors[indices]
+            logger.info(f"[PointCloudGenerator/O3D] Random subsampled → {len(points):,} points")
 
         # ── Create Open3D PCD ──────────────────────────────────────────────
         pcd = o3d.geometry.PointCloud()
@@ -199,11 +223,20 @@ class PointCloudGenerator:
         pcd = pcd.voxel_down_sample(voxel_size=0.004)
         logger.info(f"[PointCloudGenerator/O3D] After voxel downsample: {len(pcd.points):,}")
 
-        # ── Normals (orient upward — nadir satellite) ──────────────────────
+        # ── Statistical Outlier Removal ────────────────────────────────────
+        pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+        logger.info(f"[PointCloudGenerator/O3D] After outlier removal: {len(pcd.points):,}")
+
+        # ── Normals — fixed orientation for nadir satellite ────────────────
+        # Stage 1: estimate raw normals (PCA tangent plane per neighbourhood)
         pcd.estimate_normals(
-            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.025, max_nn=30)
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.05, max_nn=30)
         )
-        pcd.orient_normals_toward_camera_location(camera_location=[0.0, 20.0, 0.0])
+        # Stage 2: orient all normals towards the overhead camera (+Y axis)
+        # Since this is a 2.5D height-field from a nadir satellite, the "camera"
+        # is always perfectly overhead. This mathematically prevents Poisson from 
+        # ballooning outward horizontally.
+        pcd.orient_normals_towards_camera_location(np.array([0.0, 1000.0, 0.0]))
 
         # ── Poisson reconstruction ─────────────────────────────────────────
         logger.info(f"[PointCloudGenerator/O3D] Poisson (depth={self.POISSON_DEPTH}) …")
@@ -216,7 +249,7 @@ class PointCloudGenerator:
             f"{len(mesh.vertices):,} verts, {len(mesh.triangles):,} tris"
         )
 
-        # ── Density filter ─────────────────────────────────────────────────
+        # ── Density filter — trim low-density hull/fringe vertices ─────────
         dens = np.asarray(densities)
         mesh.remove_vertices_by_mask(dens < np.quantile(dens, self.DENSITY_TRIM))
         logger.info(
@@ -292,9 +325,18 @@ class PointCloudGenerator:
 
         # ── Elevation stats ────────────────────────────────────────────────
         dsm_sub  = metric_dsm[np.ix_(row_idx, col_idx)]
+
+        # ── Clamp extreme outliers to prevent edge spikes ──────────────────
+        # Normalize using p1..p99 bounds so y ∈ [0,1] exactly for all clamped points.
+        p1, p99 = np.nanpercentile(dsm_sub, [1, 99])
+        elev_rng = max(float(p99 - p1), 1e-3)
+        dsm_sub_clamped = np.clip(dsm_sub, p1, p99)
         min_elev = float(np.nanmin(dsm_sub))
         max_elev = float(np.nanmax(dsm_sub))
-        elev_rng = max(max_elev - min_elev, 1.0)
+        logger.info(
+            f"[PointCloudGenerator/SciPy] Elevation clamped to [{p1:.2f}, {p99:.2f}] "
+            f"(percentile 1–99, range={elev_rng:.2f}); original [{min_elev:.2f}, {max_elev:.2f}]"
+        )
 
         # ── Normalized vertex coordinates ──────────────────────────────────
         # X: columns → [-1, 1]
@@ -308,7 +350,7 @@ class PointCloudGenerator:
         x_flat = col_grid.ravel().astype(np.float32)
         z_flat = row_grid.ravel().astype(np.float32)
 
-        y_sub   = (dsm_sub - min_elev) / elev_rng
+        y_sub   = (dsm_sub_clamped - p1) / elev_rng   # normalize vs clamped bounds → [0, 1]
         y_sub   = np.where(np.isfinite(y_sub), y_sub, 0.0)
         y_flat  = y_sub.ravel().astype(np.float32)
 

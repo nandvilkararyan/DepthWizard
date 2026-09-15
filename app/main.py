@@ -11,30 +11,38 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, status
+from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 
-try:
-    from app.config import OUTPUT_DIR, DEFAULT_MODEL_ID, DEFAULT_MIN_ELEVATION_METERS, DEFAULT_MAX_ELEVATION_METERS, get_device, FRONTEND_DIR
-    from app.utils.image_io import load_optical_image, load_reference_dem
-    from app.modules.depth_extractor import DepthExtractor
-    from app.modules.scale_calibrator import ScaleCalibrator
-    from app.modules.formatter import OutputFormatter
-    from app.modules.point_cloud_generator import PointCloudGenerator
-except ImportError:
-    from config import OUTPUT_DIR, DEFAULT_MODEL_ID, DEFAULT_MIN_ELEVATION_METERS, DEFAULT_MAX_ELEVATION_METERS, get_device, FRONTEND_DIR
-    from utils.image_io import load_optical_image, load_reference_dem
-    from modules.depth_extractor import DepthExtractor
-    from modules.scale_calibrator import ScaleCalibrator
-    from modules.formatter import OutputFormatter
-    from modules.point_cloud_generator import PointCloudGenerator
+from app.config import (
+    OUTPUT_DIR,
+    DEFAULT_MODEL_ID,
+    DEFAULT_MIN_ELEVATION_METERS,
+    DEFAULT_MAX_ELEVATION_METERS,
+    get_device,
+    FRONTEND_DIR
+)
+
+from app.utils.image_io import load_optical_image, load_reference_dem
+from app.modules.depth_extractor import DepthExtractor
+from app.modules.scale_calibrator import ScaleCalibrator
+from app.modules.formatter import OutputFormatter
+from app.modules.point_cloud_generator import PointCloudGenerator
+from app.modules.flood_simulator import simulate_flood
 
 
 # Global pipeline components
 depth_extractor: Optional[DepthExtractor] = None
 scale_calibrator: Optional[ScaleCalibrator] = None
+task_store: Dict[str, Dict[str, Any]] = {}
+
+
+class FloodRequest(BaseModel):
+    task_id: str = Field(min_length=1)
+    water_level: float
 
 
 @asynccontextmanager
@@ -142,7 +150,10 @@ async def process_image(
     
     Processing Steps:
     1. Module A: Single-View Depth Extraction with 2D Hann window blending.
-    2. Module B: Scale & Shift Calibration (Linear OLS against reference DEM or fallback).
+    2. Module B: Scale & Shift Calibration.
+       - GeoTIFF with embedded CRS: attempts SRTM 30m automatic calibration.
+       - PNG/JPG (no geospatial metadata): produces Relative DSM (rDSM) output
+         directly — no lat/lon input required or used.
     3. Module C: Export Unity 16-bit Heightmap PNG, 32-bit float GeoTIFF, and Metadata JSON.
     """
     task_id = f"dsm_{uuid.uuid4().hex[:10]}"
@@ -201,9 +212,20 @@ async def process_image(
             geo_meta=geo_meta,
             reference_dem=reference_dem_arr,
             reference_dem_meta=reference_dem_meta,
+            water_mask=getattr(extractor, "last_water_mask", None),
             min_alt_override=min_alt,
             max_alt_override=max_alt
         )
+
+        print(f"[Calibration] Type: {calib_result.calibration_type}, "
+              f"Range: {calib_result.min_elevation:.2f} — {calib_result.max_elevation:.2f} "
+              f"({'relative units' if calib_result.calibration_type == 'relative_rdsm' else 'm'})")
+
+        task_store[task_id] = {
+            "metric_dsm": calib_result.metric_dsm,
+            "geo_meta": geo_meta,
+            "metadata_path": None,
+        }
 
         # Module C: Output Formatting
         unity_png_name = f"{task_id}_heightmap_unity16.png"
@@ -258,6 +280,7 @@ async def process_image(
             img_shape=rgb_image.shape[:2],
             output_filepath=metadata_json_path
         )
+        task_store[task_id]["metadata_path"] = metadata_json_path
 
         # Module D: Point Cloud & Surface Mesh (requires open3d + trimesh)
         mesh_glb_name:   str | None = None
@@ -312,6 +335,49 @@ async def process_image(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"DSM Processing failed: {str(e)}"
         )
+
+
+@app.post("/simulate-flood", tags=["Flood Simulation"])
+async def simulate_flood_endpoint(request: FloodRequest) -> Dict[str, Any]:
+    """Run border-connected inundation for a previously processed DSM."""
+    task = task_store.get(request.task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown task_id")
+    if not np.isfinite(request.water_level):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="water_level must be finite")
+
+    geo_meta = task["geo_meta"]
+    transform = geo_meta.transform
+    pixel_size = (transform[0], transform[4]) if transform else None
+    latitude = None
+    if geo_meta.bounds:
+        latitude = (geo_meta.bounds[1] + geo_meta.bounds[3]) / 2.0 if geo_meta.crs == "EPSG:4326" else None
+    result = simulate_flood(task["metric_dsm"], request.water_level, pixel_size, latitude)
+    overlay_name = f"{request.task_id}_flood_overlay.png"
+    overlay_path = OUTPUT_DIR / overlay_name
+    overlay_path.write_bytes(result.overlay_png)
+
+    flood_metrics = {
+        "water_level_meters": result.water_level_meters,
+        "flooded_area_km2": result.flooded_area_km2,
+        "water_volume_m3": result.water_volume_m3,
+        "pixel_area_m2": result.pixel_area_m2,
+    }
+    metadata_path = task.get("metadata_path")
+    if metadata_path:
+        import json
+        with open(metadata_path, "r", encoding="utf-8") as metadata_file:
+            metadata = json.load(metadata_file)
+        metadata["flood_simulation"] = flood_metrics
+        with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+            json.dump(metadata, metadata_file, indent=2)
+
+    return {
+        "task_id": request.task_id,
+        "status": "success",
+        **flood_metrics,
+        "overlay_png_url": f"/files/{overlay_name}",
+    }
 
 
 @app.get("/download/{filename}", tags=["DSM Extraction Pipeline"])

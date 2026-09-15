@@ -49,12 +49,13 @@ class OutputFormatter:
         Returns:
             Tuple of (output_filepath, min_elev, max_elev).
         """
-        min_elev = float(np.nanmin(metric_dsm))
-        max_elev = float(np.nanmax(metric_dsm))
+        finite_dsm = np.nan_to_num(metric_dsm.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        min_elev = float(np.min(finite_dsm))
+        max_elev = float(np.max(finite_dsm))
         elev_range = max_elev - min_elev if max_elev > min_elev else 1.0
 
         # Normalize to [0, 1] then scale to uint16 [0, 65535]
-        norm_dsm = (metric_dsm - min_elev) / elev_range
+        norm_dsm = (finite_dsm - min_elev) / elev_range
         uint16_dsm = np.clip(norm_dsm * 65535.0, 0, 65535).astype(np.uint16)
 
         os.makedirs(os.path.dirname(output_filepath), exist_ok=True)
@@ -131,8 +132,11 @@ class OutputFormatter:
         Exports an 8-bit grayscale heightmap PNG (0-255) for browser-based 3D terrain viewers
         (e.g. Three.js DisplacementMap). Normalized linearly from the DSM's min-max range.
 
+        The metric_dsm is already elevation-oriented (high value = high terrain) because
+        _calibrate_relative_fallback inverts the raw depth. Bright pixels = high elevation.
+
         Args:
-            metric_dsm: 2D float32 array of metric elevation values (meters).
+            metric_dsm: 2D float32 array of metric elevation values (meters or relative units).
             output_filepath: Output path for the PNG file.
 
         Returns:
@@ -142,6 +146,7 @@ class OutputFormatter:
         max_elev = float(np.nanmax(metric_dsm))
         elev_range = max_elev - min_elev if max_elev > min_elev else 1.0
 
+        # high metric_dsm value → bright pixel (high elevation)
         norm_dsm = (metric_dsm - min_elev) / elev_range
         uint8_dsm = np.clip(norm_dsm * 255.0, 0, 255).astype(np.uint8)
 
@@ -158,6 +163,9 @@ class OutputFormatter:
         Exports a false-color (COLORMAP_TURBO) 8-bit RGB PNG of the DSM for 2D preview
         in the web frontend results panel.
 
+        The metric_dsm is elevation-oriented (high value = high terrain). Peaks render
+        as the warm/yellow end of the Turbo colormap; valleys as the cool/blue end.
+
         Args:
             metric_dsm: 2D float32 array of metric elevation values.
             output_filepath: Output path for the PNG file.
@@ -169,6 +177,7 @@ class OutputFormatter:
         max_elev = float(np.nanmax(metric_dsm))
         elev_range = max_elev - min_elev if max_elev > min_elev else 1.0
 
+        # high metric_dsm → bright → warm turbo colour (peaks are yellow/red)
         norm_dsm = (metric_dsm - min_elev) / elev_range
         uint8_dsm = np.clip(norm_dsm * 255.0, 0, 255).astype(np.uint8)
         colorized = cv2.applyColorMap(uint8_dsm, cv2.COLORMAP_TURBO)
@@ -182,7 +191,8 @@ class OutputFormatter:
         calib_result: CalibrationResult,
         geo_meta: GeoMetadata,
         img_shape: Tuple[int, int],
-        output_filepath: str
+        output_filepath: str,
+        flood_metrics: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Calculates and exports scene-level metadata JSON.
@@ -199,7 +209,7 @@ class OutputFormatter:
         height, width = img_shape
         aspect_ratio = float(width) / float(height) if height > 0 else 1.0
 
-        suggested_disp_scale = float(np.clip(0.4 + (calib_result.elevation_range / 300.0) * 0.8, 0.4, 2.2))
+        suggested_disp_scale = float(np.clip(0.35 + (calib_result.elevation_range / 500.0) * 0.45, 0.35, 1.0))
 
         metadata = {
             "scene_geometry": {
@@ -218,7 +228,9 @@ class OutputFormatter:
                 "shift_beta_meters": float(calib_result.beta),
                 "calibration_type": calib_result.calibration_type,
                 "rmse_meters": round(calib_result.rmse, 4) if calib_result.rmse is not None else None,
-                "mae_meters": round(calib_result.mae, 4) if calib_result.mae is not None else None
+                "mae_meters": round(calib_result.mae, 4) if calib_result.mae is not None else None,
+                "r2_score": round(calib_result.r2_score, 6) if calib_result.r2_score is not None else None,
+                "srtm_source": calib_result.srtm_source
             },
             "geospatial_metadata": {
                 "is_georeferenced": geo_meta.is_georeferenced,
@@ -227,6 +239,8 @@ class OutputFormatter:
                 "transform": geo_meta.transform
             }
         }
+        if flood_metrics is not None:
+            metadata["flood_simulation"] = flood_metrics
 
         os.makedirs(os.path.dirname(output_filepath), exist_ok=True)
         with open(output_filepath, "w") as f:

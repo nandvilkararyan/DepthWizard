@@ -9,7 +9,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 FRONTEND_DIR = BASE_DIR / "frontend"
 
 # Default Core Model Identifier
-DEFAULT_MODEL_ID = "depth-anything/Depth-Anything-V2-Base-hf"
+DEFAULT_MODEL_ID = "./app/depthwizard_model"
 
 # Inference parameters
 DEFAULT_TILE_SIZE = 512

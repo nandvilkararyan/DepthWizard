@@ -61,6 +61,14 @@
         <span id="file-name-display">image.png</span>
       </div>
 
+      <!-- ── Relative Height Mode notice (shown for PNG/JPG; hidden for GeoTIFF) ── -->
+      <div id="relative-mode-notice" style="margin:14px 0 6px; padding:10px 16px; border-radius:10px; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.22); display:flex; align-items:center; gap:10px;">
+        <span style="font-size:17px;">📐</span>
+        <span style="font-size:13px; color:#6ee7b7; font-weight:500;">Relative Height Mode — no location required.<br/>
+          <span style="font-weight:400; color:#8899aa;">PNG &amp; JPG images produce a Relative DSM (rDSM) with heights in <em>relative units</em>. Upload a GeoTIFF for real metric elevation.</span>
+        </span>
+      </div>
+
       <!-- Advanced options -->
       <div class="adv-toggle" id="adv-toggle">
         <span id="adv-arrow">▸</span> Advanced Options
@@ -68,11 +76,11 @@
       <div class="adv-panel" id="adv-panel">
         <div class="form-row">
           <div class="form-group">
-            <label for="min-alt">Min Elevation (m)</label>
+            <label for="min-alt">Min Elevation (m) <span style="color:#8899aa;font-weight:400;font-size:11px;">GeoTIFF only</span></label>
             <input type="number" id="min-alt" value="0" step="10" />
           </div>
           <div class="form-group">
-            <label for="max-alt">Max Elevation (m)</label>
+            <label for="max-alt">Max Elevation (m) <span style="color:#8899aa;font-weight:400;font-size:11px;">GeoTIFF only</span></label>
             <input type="number" id="max-alt" value="500" step="10" />
           </div>
         </div>
@@ -152,17 +160,17 @@
       <div class="meta-card">
         <div class="meta-label">Min Elevation</div>
         <div class="meta-value" id="meta-min">—</div>
-        <div class="meta-unit">meters</div>
+        <div class="meta-unit" id="meta-elev-unit-min">meters</div>
       </div>
       <div class="meta-card">
         <div class="meta-label">Max Elevation</div>
         <div class="meta-value" id="meta-max">—</div>
-        <div class="meta-unit">meters</div>
+        <div class="meta-unit" id="meta-elev-unit-max">meters</div>
       </div>
       <div class="meta-card">
         <div class="meta-label">Elevation Range</div>
         <div class="meta-value" id="meta-range">—</div>
-        <div class="meta-unit">meters</div>
+        <div class="meta-unit" id="meta-elev-unit-range">meters</div>
       </div>
       <div class="meta-card">
         <div class="meta-label">Calibration</div>
@@ -175,7 +183,7 @@
         <div class="meta-unit">pixels</div>
       </div>
       <div class="meta-card">
-        <div class="meta-label">Georeferenced</div>
+        <div class="meta-label">Height Mode</div>
         <div class="meta-value" id="meta-geo">—</div>
         <div class="meta-unit" id="meta-crs"></div>
       </div>
@@ -231,6 +239,7 @@
           🖱 Click &amp; drag to orbit manually
         </div>
         <div class="viewer-mode-badge" id="mode-badge">✈ Flythrough</div>
+        <div id="terrain-inspection-card" aria-live="polite"></div>
 
         <!-- Engine badge (bottom-right corner) -->
         <div id="engine-badge" style="
@@ -248,9 +257,9 @@
         <div class="slider-group">
           <div class="slider-label">
             <span>Elevation Scale</span>
-            <span id="elev-val">1.5×</span>
+            <span id="elev-val">1.0×</span>
           </div>
-          <input type="range" id="elev-slider" min="0.2" max="4" step="0.1" value="1.5" />
+          <input type="range" id="elev-slider" min="0.2" max="4" step="0.1" value="1.0" />
         </div>
         <div class="slider-group">
           <div class="slider-label">
@@ -780,18 +789,27 @@ async function displayResults(data) {
 
   // Metadata cards
   const em = meta.elevation_metrics;
-  document.getElementById('meta-min').textContent   = em.min_elevation_meters.toFixed(1);
-  document.getElementById('meta-max').textContent   = em.max_elevation_meters.toFixed(1);
-  document.getElementById('meta-range').textContent = em.elevation_range_meters.toFixed(1);
+  const isRelative = meta.calibration_parameters?.calibration_type === 'relative_rdsm';
+  const elevUnit = isRelative ? 'relative units' : 'meters';
+
+  document.getElementById('meta-min').textContent   = em.min_elevation_meters.toFixed(isRelative ? 3 : 1);
+  document.getElementById('meta-max').textContent   = em.max_elevation_meters.toFixed(isRelative ? 3 : 1);
+  document.getElementById('meta-range').textContent = em.elevation_range_meters.toFixed(isRelative ? 3 : 1);
+  ['meta-elev-unit-min', 'meta-elev-unit-max', 'meta-elev-unit-range'].forEach(id => {
+    document.getElementById(id).textContent = elevUnit;
+  });
 
   const cp = meta.calibration_parameters;
   const calibBadge = document.getElementById('meta-calib-badge');
   calibBadge.innerHTML = '';
   const badge = document.createElement('span');
-  badge.className = cp.calibration_type === 'reference_dem' ? 'meta-badge badge-green' : 'meta-badge badge-amber';
-  badge.textContent = cp.calibration_type === 'reference_dem' ? 'DEM Calibrated' : 'Relative Mode';
+  const isSrtm = cp.calibration_type === 'SRTM_METRIC' || cp.calibration_type === 'SRTM_30m_AUTOMATED' || cp.calibration_type === 'SRTM_30m_REGIONAL';
+  const isDem = isSrtm || cp.calibration_type === 'reference_dem';
+  const isRdsmRelative = cp.calibration_type === 'relative_rdsm';
+  badge.className = isDem ? 'meta-badge badge-green' : (isRdsmRelative ? 'meta-badge badge-teal' : 'meta-badge badge-amber');
+  badge.textContent = isSrtm ? 'SRTM METRIC (REAL DATA)' : (isDem ? 'DEM Calibrated' : (isRdsmRelative ? 'Relative Height Mode' : 'Relative Mode'));
   calibBadge.appendChild(badge);
-  document.getElementById('meta-rmse').textContent = cp.rmse_meters != null ? `RMSE ${cp.rmse_meters.toFixed(2)} m` : '';
+  document.getElementById('meta-rmse').textContent = cp.rmse_meters != null ? `RMSE ${cp.rmse_meters.toFixed(2)} m` : (isRdsmRelative ? '% of local relief' : '');
 
   const sg = meta.scene_geometry;
   document.getElementById('meta-size').textContent = `${sg.width_pixels} × ${sg.height_pixels}`;
@@ -800,8 +818,13 @@ async function displayResults(data) {
   const geoEl = document.getElementById('meta-geo');
   geoEl.innerHTML = '';
   const geoBadge = document.createElement('span');
-  geoBadge.className = gm.is_georeferenced ? 'meta-badge badge-green' : 'meta-badge badge-amber';
-  geoBadge.textContent = gm.is_georeferenced ? 'Yes' : 'No';
+  if (gm.is_georeferenced) {
+    geoBadge.className = 'meta-badge badge-green';
+    geoBadge.textContent = 'Metric (GeoTIFF)';
+  } else {
+    geoBadge.className = 'meta-badge badge-teal';
+    geoBadge.textContent = 'Relative Height';
+  }
   geoEl.appendChild(geoBadge);
   document.getElementById('meta-crs').textContent = gm.crs || '';
 
@@ -863,7 +886,7 @@ function _initMeshOverlayPanel() {
   meshPanel.style.display  = 'block';
   meshLoadingIndicator.style.display = 'flex';
   meshVisibleToggle.checked   = true;
-  meshWireframeToggle.checked = true;
+  meshWireframeToggle.checked = false;
   meshOpacitySlider.value     = '1';
   meshOpacityVal.textContent  = '100%';
 
@@ -876,10 +899,9 @@ async function _loadMeshWithIndicator(glbUrl, meta) {
   try {
     await loadMeshOverlay(glbUrl, meta, 1.0);
     meshLoadingIndicator.style.display = 'none';
-    // Apply wireframe immediately on load (default-on)
-    setMeshWireframe(true);
+    setMeshWireframe(false);
     setMeshOpacity(1.0);
-    console.log('[DepthWizard] Mesh overlay ready (wireframe default).');
+    console.log('[DepthWizard] Mesh overlay ready.');
   } catch (err) {
     meshLoadingIndicator.style.display = 'none';
     meshPanel.style.display = 'none';
@@ -940,10 +962,10 @@ async function _initFloodPanel(heightmapUrl, metadata) {
   _floodMax = em.max_elevation_meters ?? 100;
 
   // Reconfigure slider range to match real meter bounds
-  floodSlider.min   = Math.round(_floodMin);
-  floodSlider.max   = Math.round(_floodMax);
+  floodSlider.min   = String(_floodMin);
+  floodSlider.max   = String(_floodMax);
   floodSlider.step  = Math.max(0.5, (_floodMax - _floodMin) / 500);
-  floodSlider.value = String(Math.round(_floodMin));
+  floodSlider.value = String(_floodMin);
 
   // Show the panel
   floodPanel.style.display = 'block';
@@ -955,6 +977,7 @@ async function _initFloodPanel(heightmapUrl, metadata) {
   // Initialise the Three.js water plane (async — samples heightmap pixels)
   try {
     await initFloodSimulator(heightmapUrl, metadata);
+    setFloodLevel(Number(floodSlider.value));
     console.log('[Flood] Simulator ready.');
   } catch (err) {
     console.warn('[Flood] Init failed:', err);
@@ -993,15 +1016,27 @@ function _riskGradient(riskClass) {
   return gradients[riskClass] || gradients.safe;
 }
 
+// ── Flood slider re-entrancy guard ───────────────────────────────────────────
+// Some browsers fire 'input' when .value is set programmatically on range inputs.
+// This flag prevents the slider's input handler from calling setFloodLevel() when
+// the slider is being updated by a dw:floodUpdate event or a preset button click
+// (rather than by genuine user drag interaction).
+let _floodSliderUpdating = false;
+
 // React to flood updates dispatched from viewer.js
 document.addEventListener('dw:floodUpdate', (e) => {
   _updateFloodUI(e.detail);
-  if (floodSlider) floodSlider.value = String(e.detail.meters);
+  if (floodSlider) {
+    _floodSliderUpdating = true;
+    floodSlider.value = String(e.detail.meters);
+    _floodSliderUpdating = false;
+  }
 });
 
-// Slider input
+// Slider input — only fires on genuine user interaction (guarded against programmatic updates)
 if (floodSlider) {
   floodSlider.addEventListener('input', () => {
+    if (_floodSliderUpdating) return; // programmatic update — ignore
     const meters = parseFloat(floodSlider.value);
     setFloodLevel(meters);
   });
@@ -1024,33 +1059,43 @@ Object.entries(_floodPresets).forEach(([pct, frac]) => {
   const btn = document.getElementById(`flood-preset-${pct}`);
   if (!btn) return;
   btn.addEventListener('click', () => {
+    console.log(`[Flood Preset] "${pct}%" button clicked — passing frac=${frac} to setFloodLevelPct()`);
     stopFloodAnimation();
     _floodAnimating = false;
+    if (_floodAnimateTimeout) { clearTimeout(_floodAnimateTimeout); _floodAnimateTimeout = null; }
     floodAnimateBtn.textContent = '▶ Animate Rising';
     setFloodVisible(true);
     floodVisibleToggle.checked = true;
     setFloodLevelPct(frac);
+    // Guard against re-entrant input event when assigning .value programmatically
+    _floodSliderUpdating = true;
     floodSlider.value = String(_floodMin + frac * (_floodMax - _floodMin));
+    _floodSliderUpdating = false;
   });
 });
 
 // Animate Rising button
+let _floodAnimateTimeout = null; // track so we can cancel if user stops early
+
 if (floodAnimateBtn) {
   floodAnimateBtn.addEventListener('click', () => {
     if (_floodAnimating) {
       stopFloodAnimation();
       _floodAnimating = false;
       floodAnimateBtn.textContent = '▶ Animate Rising';
+      if (_floodAnimateTimeout) { clearTimeout(_floodAnimateTimeout); _floodAnimateTimeout = null; }
     } else {
       _floodAnimating = true;
       floodAnimateBtn.textContent = '⏹ Stop';
       setFloodVisible(true);
       floodVisibleToggle.checked = true;
-      // Start from min, rise to 75%
+      // Reset to min, then rise to 75%
       setFloodLevelPct(0);
       animateFloodRising(_floodMin + (_floodMax - _floodMin) * 0.75, 5000);
-      setTimeout(() => {
+      if (_floodAnimateTimeout) clearTimeout(_floodAnimateTimeout);
+      _floodAnimateTimeout = setTimeout(() => {
         _floodAnimating = false;
+        _floodAnimateTimeout = null;
         floodAnimateBtn.textContent = '▶ Animate Rising';
       }, 5200);
     }
@@ -1126,7 +1171,7 @@ engineCesiumBtn.addEventListener('click', () => {
       loadCesiumModel(
         lastResult.download_urls.mesh_glb,
         lastResult.download_urls.optical_texture_png,
-        lastResult.download_urls.depth_colorized_png || lastResult.download_urls.heightmap_8bit_preview_png,
+        lastResult.download_urls.heightmap_16bit_png || lastResult.download_urls.heightmap_8bit_preview_png,
         lastMetadata
       );
     }
