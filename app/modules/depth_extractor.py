@@ -52,6 +52,23 @@ class DepthExtractor:
         self.last_raw_min: float = 0.0
         self.last_raw_max: float = 1.0
 
+    def release(self):
+        """Releases model weights and frees system memory."""
+        try:
+            if hasattr(self, "model") and self.model is not None:
+                del self.model
+                self.model = None
+            if hasattr(self, "processor") and self.processor is not None:
+                del self.processor
+                self.processor = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            import gc
+            gc.collect()
+            print(f"[DepthExtractor] Released model '{self.model_id}' from memory.")
+        except Exception as e:
+            print(f"[DepthExtractor] Error releasing model: {e}")
+
     @staticmethod
     def create_2d_hann_window(height: int, width: int) -> np.ndarray:
         """

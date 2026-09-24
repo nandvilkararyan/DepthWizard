@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_standard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{"colors":{"inverse-surface":"#dfe2f1","secondary-fixed-dim":"#4edea3","tertiary-container":"#e1d2ff","on-tertiary-fixed":"#23005c","surface-bright":"#353944","secondary-fixed":"#6ffbbe","tertiary-fixed-dim":"#d0bcff","on-primary":"#00363a","inverse-primary":"#006970","surface-container":"#1c1f2a","surface-container-lowest":"#0a0e18","on-tertiary-container":"#6d3bd7","on-tertiary-fixed-variant":"#5516be","on-secondary-fixed":"#002113","outline":"#849495","secondary":"#4edea3","on-primary-container":"#006970","primary":"#dbfcff","on-primary-fixed":"#002022","surface-container-high":"#262a35","background":"#0f131d","on-tertiary":"#3c0091","inverse-on-surface":"#2c303b","tertiary":"#faf3ff","tertiary-fixed":"#e9ddff","on-error":"#690005","on-surface":"#dfe2f1","on-secondary":"#003824","primary-fixed-dim":"#00dbe9","on-background":"#dfe2f1","primary-container":"#00f0ff","on-error-container":"#ffdad6","error-container":"#93000a","surface-container-low":"#171b26","surface-variant":"#313540","surface-tint":"#00dbe9","surface":"#0f131d","outline-variant":"#3b494b","on-primary-fixed-variant":"#004f54","secondary-container":"#00a572","on-secondary-fixed-variant":"#005236","surface-dim":"#0f131d","error":"#ffb4ab","surface-container-highest":"#313540","on-secondary-container":"#00311f","on-surface-variant":"#b9cacb","primary-fixed":"#7df4ff"},"borderRadius":{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},"spacing":{"space-xl":"1.5rem","space-sm":"0.5rem","space-lg":"1rem","space-md":"0.75rem","margin-sm":"1rem","gutter-sm":"0.5rem","gutter":"1rem","margin":"1.5rem","space-xs":"0.25rem"},"fontFamily":{"label-caps":["JetBrains Mono"],"display-lg-mobile":["Inter"],"mono-data-lg":["JetBrains Mono"],"headline-sm":["Inter"],"mono-data-sm":["JetBrains Mono"],"body-lg":["Inter"],"headline-lg":["Inter"],"body-sm":["Inter"],"mono-data-md":["JetBrains Mono"],"display-lg":["Inter"]},"fontSize":{"label-caps":["10px",{"lineHeight":"12px","letterSpacing":"0.08em","fontWeight":"600"}],"display-lg-mobile":["28px",{"lineHeight":"36px","letterSpacing":"-0.01em","fontWeight":"600"}],"mono-data-lg":["16px",{"lineHeight":"22px","letterSpacing":"-0.01em","fontWeight":"500"}],"headline-sm":["18px",{"lineHeight":"26px","letterSpacing":"0em","fontWeight":"500"}],"mono-data-sm":["11px",{"lineHeight":"14px","letterSpacing":"0.02em","fontWeight":"400"}],"body-lg":["15px",{"lineHeight":"22px","letterSpacing":"0em","fontWeight":"400"}],"headline-lg":["24px",{"lineHeight":"32px","letterSpacing":"-0.01em","fontWeight":"600"}],"body-sm":["13px",{"lineHeight":"18px","letterSpacing":"0.01em","fontWeight":"400"}],"mono-data-md":["13px",{"lineHeight":"18px","letterSpacing":"0em","fontWeight":"500"}],"display-lg":["36px",{"lineHeight":"44px","letterSpacing":"-0.02em","fontWeight":"600"}]}}}}</script></head><body class="bg-background font-body-sm text-on-surface antialiased selection:bg-primary-container selection:text-on-primary-container min-h-screen"><header class="fixed top-0 left-0 right-0 z-50 bg-surface-container-lowest/90 backdrop-blur-xl shadow-[0_4px_24px_rgba(0,0,0,0.6)]"><div class="h-20 w-full px-margin flex items-center justify-between gap-space-lg"><div class="flex items-center gap-space-lg shrink-0"><div class="flex items-center gap-space-md pr-space-md"><img alt="AeroMesh AI Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAOTLaGuKh_-tWsdji0TeaAYr6kb1RLxfLGxI9fFBKUFEEzcIf__d0tYEobaHJzEt1z1Pz9yQwLyaq372oL75Qix3XvCcgNFhWnq904_KLCWFiyo4yJ7LnhGHl39U4d0U4VKgR7D8bOkCm32xjo4j4SxqIG8eMld3QZs9PLlrgkF6Lp4gaWWFRCwnOPfckBw2vFfxxSjTIACZHecrZI1vqOlm6VFojZX85tcbfenp9KymJ8pCDXo2cKVw"/><div class="flex flex-col"><span class="font-headline-sm text-headline-sm text-primary tracking-tight font-semibold leading-none">AeroMesh AI</span><span class="font-label-caps text-label-caps text-on-surface-variant tracking-wider uppercase mt-space-xs">Geospatial Engine v4.2</span></div></div><div class="hidden xl:flex items-center gap-space-sm px-space-md py-space-xs rounded bg-surface-container-low"><div class="flex flex-col"><span class="font-label-caps text-label-caps text-on-surface-variant uppercase">Active GeoTIFF Workspace</span><div class="flex items-center gap-space-xs"><span class="font-mono-data-sm text-mono-data-sm text-on-surface font-medium">Port of Rotterdam - Berth 4B Survey [GeoTIFF]</span><span class="material-symbols-outlined text-[16px] text-primary-fixed-dim">expand_more</span></div></div></div><div class="hidden 2xl:flex items-center gap-space-sm px-space-md py-space-xs rounded bg-surface-container"><span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span><span class="font-mono-data-sm text-mono-data-sm text-secondary">SRTM Calibrated • RTK Fix OK</span></div><div class="hidden 2xl:flex items-center gap-space-lg pl-space-md"><div class="flex flex-col"><span class="font-label-caps text-label-caps text-on-surface-variant">SURVEY GSD</span><span class="font-mono-data-sm text-mono-data-sm text-primary">3.2 cm/px</span></div><div class="flex flex-col"><span class="font-label-caps text-label-caps text-on-surface-variant">EST. MAX HT</span><span class="font-mono-data-sm text-mono-data-sm text-primary-fixed">84.6 m</span></div></div></div><nav class="flex items-center gap-space-xs bg-surface-container-lowest/80 p-space-xs rounded shrink-0" data-active-classes="bg-surface-container-high text-primary-fixed-dim font-medium"><a class="px-space-md py-space-xs rounded text-on-surface-variant hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="projects-hub" href="#">Projects &amp; Hub</a><a class="px-space-md py-space-xs rounded text-on-surface-variant hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="ai-calibration-studio" href="#">AI Calibration Studio</a><a aria-current="page" class="px-space-md py-space-xs rounded transition-colors bg-surface-container-high text-primary-fixed-dim font-medium" data-path="playable-3d-simulator" href="#">Playable 3D Simulator</a><a class="px-space-md py-space-xs rounded text-on-surface-variant hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="analysis-export" href="#">Analysis &amp; Export</a></nav><div class="flex items-center gap-space-md shrink-0"><div class="hidden lg:flex items-center gap-space-md px-space-md py-space-xs rounded bg-surface-container-low"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[16px] text-secondary">satellite_alt</span><span class="font-mono-data-sm text-mono-data-sm text-on-surface">51°55'42.1"N 4°28'12.4"E</span></div><div class="h-3 w-[1px] bg-surface-container-high"></div><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[16px] text-primary-fixed-dim">memory</span><span class="font-mono-data-sm text-mono-data-sm text-primary-fixed-dim">WebGL2 60FPS</span></div></div><div class="relative p-space-xs rounded hover:bg-surface-container transition-colors cursor-pointer text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined text-[20px]">notifications</span><span class="absolute top-1 right-1 w-1.5 h-1.5 bg-primary-container rounded-full"></span></div><div class="flex items-center gap-space-sm pl-space-xs"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div><div class="hidden sm:flex flex-col"><span class="font-label-caps text-label-caps text-primary">LEAD SURVEYOR</span><span class="font-mono-data-sm text-mono-data-sm text-on-surface-variant leading-none">SURV-9042</span></div></div></div></div></header><main class="w-full pt-20 bg-background min-h-screen"><div class="flex flex-col w-full relative select-none">
+<!-- Interactive 3D Spatial Canvas Container -->
+<div class="relative w-full h-[calc(100vh-5rem)] overflow-hidden bg-surface-container-lowest">
+<!-- Synthetic 3D Extrusion Viewport (Canvas / WebGL Engine Emulation) -->
+<div class="absolute inset-0 z-0 overflow-hidden cursor-crosshair" id="viewport-canvas">
+<!-- Deep atmospheric terrain background -->
+<div class="absolute inset-0 bg-gradient-to-b from-surface-container-lowest via-surface-container-low to-background opacity-95"></div>
+<!-- Drone Aerial Orthomosaic Extruded Layer Representation with dynamic perspective -->
+<div class="absolute inset-0 flex items-center justify-center scale-110 [perspective:1200px]">
+<!-- 3D Transform World Container -->
+<div class="relative w-[1300px] h-[850px] transition-transform duration-700 ease-out [transform-style:preserve-3d] [transform:rotateX(58deg)_rotateZ(-24deg)_translateZ(20px)]" id="spatial-world">
+<!-- Base Ortho Draped Satellite/Drone Photo Plane -->
+<div class="absolute inset-0 rounded shadow-[0_30px_120px_rgba(0,0,0,0.9)] overflow-hidden">
+<img class="w-full h-full object-cover filter contrast-125 brightness-95" data-alt="High-resolution industrial aerial drone survey orthophoto of a modern container sea terminal with deep blue harbor water, berth bulkheads, container stack grids, gantry crane rail lines, and warehouse roofs in crisp midday directional sunlight with sharp cast shadows" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBVFNV3RH351sLz6cg3BmlGh8XJhmSmFDLS1vQohRGotnORLZhx_v65V5R8oVFgePnOGfjsLjV2U3mtiLFrHdrO7yqQbx8RrfMt5z38XyCCQYFKJK9vbxqsy4aGXFSquzyDBWAjWh173YAIGHBqBMcmCLylSmA6fZtdVBVL7E0H2Mx8paGbw-lgzNfoQGf_9RGnC_VQk41Zk548anRc_UeADPl69FS-d7xLhkWZrV8qAhH0bR33DKkrAw"/>
+<!-- Shading and Elevation Gradient Draped Overlay (Controlled by HUD) -->
+<div class="absolute inset-0 bg-gradient-to-tr from-primary-fixed/20 via-secondary/20 to-tertiary-container/30 mix-blend-color-dodge opacity-0 transition-opacity duration-300 pointer-events-none" id="layer-heatmap"></div>
+<!-- Dynamic Wireframe Grid drape -->
+<div class="absolute inset-0 bg-[linear-gradient(to_right,rgba(0,240,255,0.25)_1px,transparent_1px),linear-gradient(to_bottom,rgba(0,240,255,0.25)_1px,transparent_1px)] bg-[size:32px_32px] opacity-20 pointer-events-none" id="layer-wireframe"></div>
+<!-- Dynamic 2m Contour Isolines -->
+<div class="absolute inset-0 opacity-0 transition-opacity duration-300 pointer-events-none bg-[radial-gradient(ellipse_at_center,_transparent_40%,rgba(0,240,255,0.3)_41%,_transparent_42%,_transparent_60%,rgba(78,222,163,0.3)_61%,_transparent_62%)]" id="layer-isolines"></div>
+</div>
+<!-- Dynamic Directional Sunlight Shadow Layer -->
+<div class="absolute inset-0 bg-gradient-to-br from-transparent via-surface-container-lowest/40 to-surface-container-lowest/80 pointer-events-none mix-blend-multiply transition-all duration-300" id="sunlight-cast"></div>
+<!-- EXTRUDED 3D GEOMETRY NODES (Buildings, Stacked Containers, Cranes) -->
+<!-- 3D Extruded Structure 1: Mega-Warehouse 3 (Height: 24.1m AGL) -->
+<div class="absolute left-[360px] top-[240px] w-[260px] h-[160px] [transform-style:preserve-3d]">
+<!-- Cast shadow on ground -->
+<div class="absolute -right-16 top-10 w-[260px] h-[160px] bg-surface-container-lowest/85 blur-sm -skew-x-[28deg] pointer-events-none"></div>
+<!-- South Wall -->
+<div class="absolute bottom-0 left-0 w-full h-[52px] bg-surface-container-high origin-bottom [transform:rotateX(-90deg)] flex items-center justify-between px-3 text-on-surface-variant font-mono-data-sm text-[9px] opacity-90 border-t-0 border-b-0">
+<span class="text-primary-fixed-dim font-bold">TERMINAL BAY 03</span>
+<span>H: 24.1m</span>
+</div>
+<!-- East Wall (Sunlit) -->
+<div class="absolute top-0 right-0 h-full w-[52px] bg-surface-variant origin-right [transform:rotateY(90deg)] opacity-75"></div>
+<!-- West Wall (In Shadow) -->
+<div class="absolute top-0 left-0 h-full w-[52px] bg-surface-container-lowest origin-left [transform:rotateY(-90deg)] opacity-95"></div>
+<!-- Rooftop Surface (Extruded Upwards by Z: 52px) -->
+<div class="absolute inset-0 bg-surface-container rounded-xs [transform:translateZ(52px)] shadow-[inset_0_0_15px_rgba(0,240,255,0.15)] flex flex-col justify-between p-2 overflow-hidden group hover:brightness-110 transition-all cursor-pointer">
+<div class="flex items-center justify-between">
+<span class="font-mono-data-sm text-label-caps text-primary px-1.5 py-0.5 bg-surface-container-lowest/90 rounded">WH-3 ROOF</span>
+<span class="font-mono-data-sm text-[10px] text-secondary-fixed flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>GEO-REF FIX</span>
+</div>
+<div class="flex items-end justify-between font-mono-data-sm text-[10px] text-on-surface-variant">
+<span>SLOPE: 1.8°</span>
+<span class="text-primary-fixed-dim">EL: +32.4m</span>
+</div>
+</div>
+<!-- Interactive Height Probe Pinpoint on Rooftop -->
+<div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 [transform:translateZ(52px)] z-30 pointer-events-none">
+<div class="relative flex items-center justify-center">
+<!-- Reticle Pulse -->
+<span class="absolute w-8 h-8 rounded-full bg-primary-container/20 animate-ping"></span>
+<span class="material-symbols-outlined text-primary-container text-[20px] drop-shadow-[0_0_8px_#00F0FF]">my_location</span>
+<!-- Floating Real-Time Probe HUD Flag -->
+<div class="absolute left-7 -top-6 whitespace-nowrap bg-surface-container-lowest/95 backdrop-blur-md px-3 py-1.5 rounded shadow-xl flex flex-col gap-0.5 border-l-2 border-primary-container">
+<div class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container animate-pulse"></span>
+<span class="font-label-caps text-label-caps text-primary uppercase tracking-widest">ACTIVE HEIGHT PROBE</span>
+</div>
+<span class="font-mono-data-sm text-mono-data-sm text-on-surface font-semibold">+32.4m AMSL <span class="text-on-surface-variant font-normal">[Rooftop: 24.1m AGL]</span></span>
+<span class="font-mono-data-sm text-[10px] text-outline">LAT 51°55'42.8"N • LON 4°28'11.9"E</span>
+</div>
+</div>
+</div>
+</div>
+<!-- 3D Extruded Structure 2: Heavy Container Stacks (Multi-tier block) -->
+<div class="absolute left-[700px] top-[180px] w-[180px] h-[190px] [transform-style:preserve-3d]">
+<div class="absolute -right-20 top-12 w-[180px] h-[190px] bg-surface-container-lowest/80 blur-xs -skew-x-[26deg] pointer-events-none"></div>
+<!-- South Wall -->
+<div class="absolute bottom-0 left-0 w-full h-[40px] bg-surface-container-high origin-bottom [transform:rotateX(-90deg)] flex items-end p-1 text-[8px] font-mono-data-sm text-on-surface-variant">
+<span>TIER-4 ISO STACK</span>
+</div>
+<!-- Extruded Deck -->
+<div class="absolute inset-0 bg-surface-container-highest rounded-xs [transform:translateZ(40px)] shadow-[inset_0_0_10px_rgba(0,0,0,0.5)] p-2 grid grid-cols-3 gap-1">
+<div class="bg-surface-variant rounded-xs border-b border-primary/20"></div>
+<div class="bg-surface-container rounded-xs"></div>
+<div class="bg-surface-variant rounded-xs border-b border-secondary/20"></div>
+<div class="bg-surface-container-low rounded-xs"></div>
+<div class="bg-surface-variant rounded-xs"></div>
+<div class="bg-surface-container rounded-xs"></div>
+</div>
+</div>
+<!-- 3D Extruded Structure 3: STS Super-Gantry Container Crane (Height: 76.2m) -->
+<div class="absolute left-[200px] top-[480px] w-[140px] h-[220px] [transform-style:preserve-3d]">
+<!-- Long Slanted Boom Shadow -->
+<div class="absolute -right-36 top-16 w-[180px] h-[260px] bg-surface-container-lowest/90 blur-sm -skew-x-[38deg] pointer-events-none"></div>
+<!-- Extruded Crane Tower Apex (Z: 140px) -->
+<div class="absolute inset-0 [transform:translateZ(140px)] flex flex-col items-center justify-center">
+<div class="w-full h-4 bg-primary-fixed/30 rounded-xs shadow-[0_0_15px_rgba(0,240,255,0.4)] flex items-center justify-between px-2">
+<span class="font-mono-data-sm text-[9px] text-primary font-bold">GANTRY-CRANE #01 APEX</span>
+<span class="font-mono-data-sm text-[9px] text-secondary">BEARING 042°</span>
+</div>
+</div>
+<!-- Measuring Tool Cyan Dashed Vector Line (Base to Apex: ΔH 76.2m) -->
+<div class="absolute left-1/2 bottom-0 w-0.5 h-[140px] bg-transparent border-r-2 border-dashed border-primary-container [transform-origin:bottom_center] [transform:rotateX(-90deg)] z-30 pointer-events-none flex flex-col justify-between items-center">
+<!-- Top Pin -->
+<span class="w-2.5 h-2.5 rounded-full bg-primary-container shadow-[0_0_10px_#00F0FF] -translate-x-1"></span>
+<!-- Delta HUD Tooltip Badge -->
+<div class="bg-surface-container-lowest/95 backdrop-blur-md px-2.5 py-1 rounded shadow-2xl -translate-x-1/2 whitespace-nowrap flex items-center gap-1.5">
+<span class="material-symbols-outlined text-primary-container text-[14px]">straighten</span>
+<span class="font-mono-data-sm text-mono-data-sm text-primary-container font-bold">ΔH: 76.2m</span>
+<span class="font-mono-data-sm text-[10px] text-on-surface-variant">(VERTICAL EXTENT)</span>
+</div>
+<!-- Bottom Pin -->
+<span class="w-2.5 h-2.5 rounded-full bg-primary-container/80 -translate-x-1"></span>
+</div>
+</div>
+<!-- Dynamic Orthographic Cross-Section Survey Line A-B Vector overlay -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none z-20 overflow-visible">
+<line opacity="0.8" stroke="#00F0FF" stroke-dasharray="6,4" stroke-width="2" x1="160" x2="840" y1="620" y2="210"></line>
+<!-- Survey Node A -->
+<circle cx="160" cy="620" fill="#00F0FF" r="5"></circle>
+<text fill="#DBFCFF" font-family="JetBrains Mono" font-size="12" font-weight="600" x="145" y="645">SURVEY POINT [A]</text>
+<!-- Survey Node B -->
+<circle cx="840" cy="210" fill="#4EDEA3" r="5"></circle>
+<text fill="#4EDEA3" font-family="JetBrains Mono" font-size="12" font-weight="600" x="830" y="195">SURVEY POINT [B]</text>
+</svg>
+</div>
+</div>
+<!-- Center Drone Crosshair / Reticle HUD overlay -->
+<div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+<div class="relative w-28 h-28 flex items-center justify-center opacity-40">
+<div class="absolute inset-0 border-t border-b border-primary/40 rounded-full"></div>
+<div class="w-4 h-0.5 bg-primary"></div>
+<div class="h-4 w-0.5 bg-primary absolute"></div>
+<span class="absolute -top-4 font-mono-data-sm text-[9px] text-primary-fixed-dim tracking-widest">DRONE TARGET TRACK</span>
+</div>
+</div>
+<!-- Left-hand Viewport Vertical Altitude Ladder Scale -->
+<div class="absolute left-6 top-1/2 -translate-y-1/2 flex flex-col items-start gap-3 pointer-events-none z-10 text-on-surface-variant font-mono-data-sm text-[10px]">
+<div class="flex items-center gap-2 text-primary-fixed-dim font-bold">
+<span class="w-4 h-0.5 bg-primary-container"></span>
+<span>100m</span>
+</div>
+<div class="flex items-center gap-1.5 opacity-60">
+<span class="w-2.5 h-0.5 bg-on-surface-variant"></span>
+<span>80m</span>
+</div>
+<div class="flex items-center gap-2 text-secondary font-bold">
+<span class="w-5 h-0.5 bg-secondary"></span>
+<span>68.4m [UAV]</span>
+</div>
+<div class="flex items-center gap-1.5 opacity-60">
+<span class="w-2.5 h-0.5 bg-on-surface-variant"></span>
+<span>60m</span>
+</div>
+<div class="flex items-center gap-1.5 opacity-60">
+<span class="w-2.5 h-0.5 bg-on-surface-variant"></span>
+<span>40m</span>
+</div>
+<div class="flex items-center gap-1.5 opacity-60">
+<span class="w-2.5 h-0.5 bg-on-surface-variant"></span>
+<span>20m</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface font-semibold">
+<span class="w-4 h-0.5 bg-on-surface"></span>
+<span>0m MSL</span>
+</div>
+</div>
+</div>
+<!-- ========================================================================= -->
+<!-- FLOATING HUD LAYER (Tactile Technical Instrumentation) -->
+<!-- ========================================================================= -->
+<!-- TOP-CENTER: Flight Telemetry Compass Tape & Attitude Indicators -->
+<div class="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-2 pointer-events-auto">
+<!-- Tape Display Panel -->
+<div class="bg-surface-container-lowest/85 backdrop-blur-xl px-5 py-2 rounded shadow-2xl flex items-center gap-6">
+<!-- Compass Heading -->
+<div class="flex flex-col items-center">
+<span class="font-label-caps text-label-caps text-on-surface-variant">HEADING</span>
+<div class="flex items-center gap-1 text-primary-fixed font-mono-data-lg text-mono-data-lg font-bold">
+<span class="material-symbols-outlined text-[18px] text-secondary">explore</span>
+<span>042° NE</span>
+</div>
+</div>
+<!-- Metric Divider -->
+<div class="h-8 w-px bg-surface-container-high"></div>
+<!-- Altitude AGL -->
+<div class="flex flex-col items-center">
+<span class="font-label-caps text-label-caps text-on-surface-variant">ALTITUDE AGL</span>
+<span class="text-primary font-mono-data-lg text-mono-data-lg font-bold">68.4 <span class="text-body-sm font-normal text-on-surface-variant">m</span></span>
+</div>
+<!-- Metric Divider -->
+<div class="h-8 w-px bg-surface-container-high"></div>
+<!-- Ground Airspeed -->
+<div class="flex flex-col items-center">
+<span class="font-label-caps text-label-caps text-on-surface-variant">AIRSPEED</span>
+<span class="text-secondary-fixed-dim font-mono-data-lg text-mono-data-lg font-bold">18.2 <span class="text-body-sm font-normal text-on-surface-variant">m/s</span></span>
+</div>
+<!-- Metric Divider -->
+<div class="h-8 w-px bg-surface-container-high"></div>
+<!-- Pitch & Roll Att. -->
+<div class="flex flex-col items-center">
+<span class="font-label-caps text-label-caps text-on-surface-variant">PITCH / ROLL</span>
+<div class="flex items-center gap-1.5 font-mono-data-sm text-mono-data-sm font-semibold">
+<span class="text-primary-fixed-dim">-14°</span>
+<span class="text-on-surface-variant">/</span>
+<span class="text-on-surface">0°</span>
+</div>
+</div>
+<!-- RTK Quality Tag -->
+<div class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-container text-secondary font-mono-data-sm text-[11px] font-semibold">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+<span>RTK FIX • 14 SV</span>
+</div>
+</div>
+<!-- Render Mode Toggles & Sunlight Slider Ribbon -->
+<div class="flex flex-wrap items-center justify-center gap-1.5 bg-surface-container-lowest/90 backdrop-blur-md p-1.5 rounded shadow-lg">
+<button class="px-3 py-1 rounded font-mono-data-sm text-mono-data-sm transition-all bg-primary-container text-on-primary-container font-semibold shadow-[0_0_12px_rgba(0,240,255,0.4)]" id="btn-mode-ortho">
+          Textured Ortho Skin
+        </button>
+<button class="px-3 py-1 rounded font-mono-data-sm text-mono-data-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all" id="btn-mode-wireframe">
+          Wireframe Overlay
+        </button>
+<button class="px-3 py-1 rounded font-mono-data-sm text-mono-data-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all" id="btn-mode-heatmap">
+          Height Heatmap
+        </button>
+<button class="px-3 py-1 rounded font-mono-data-sm text-mono-data-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all" id="btn-mode-isolines">
+          Contour Isolines (2m)
+        </button>
+<!-- Sunlight Time Slider Pill -->
+<div class="flex items-center gap-2 pl-3 ml-2 border-l border-surface-container-high">
+<span class="material-symbols-outlined text-secondary text-[16px]">wb_sunny</span>
+<span class="font-label-caps text-label-caps text-on-surface-variant whitespace-nowrap">SUN TIME</span>
+<input class="w-20 h-1 bg-surface-container-high rounded-lg appearance-none cursor-pointer accent-secondary" id="sun-slider" max="18" min="8" step="0.5" type="range" value="14.5"/>
+<span class="font-mono-data-sm text-mono-data-sm text-secondary font-medium w-16" id="sun-label">14:30 EST</span>
+</div>
+</div>
+</div>
+<!-- TOP-RIGHT: Camera Perspective & View Mode Switcher -->
+<div class="absolute top-4 right-6 z-30 flex flex-col items-end gap-2 pointer-events-auto">
+<div class="bg-surface-container-lowest/85 backdrop-blur-xl p-2 rounded shadow-2xl flex flex-col gap-1 w-56">
+<div class="flex items-center justify-between px-2 py-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase">CAMERA RIG</span>
+<span class="font-mono-data-sm text-[10px] text-primary-fixed-dim">GL_PERSPECTIVE</span>
+</div>
+<button class="flex items-center justify-between px-3 py-1.5 rounded bg-surface-container-high text-primary font-body-sm text-body-sm transition-colors text-left group">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px] text-primary-container">flight</span>
+<span class="font-medium">Drone FPV (WASD)</span>
+</div>
+<span class="font-label-caps text-[9px] text-primary-container bg-surface-container-lowest px-1.5 py-0.5 rounded">LIVE</span>
+</button>
+<button class="flex items-center justify-between px-3 py-1.5 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors text-left group">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">screen_rotation</span>
+<span>Orbit Target</span>
+</div>
+<span class="font-mono-data-sm text-[10px] text-outline">PITCH 45°</span>
+</button>
+<button class="flex items-center justify-between px-3 py-1.5 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors text-left group">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">layers</span>
+<span>Orthographic Top-Down</span>
+</div>
+<span class="font-mono-data-sm text-[10px] text-outline">NADIR</span>
+</button>
+<button class="flex items-center justify-between px-3 py-1.5 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors text-left group">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">directions_walk</span>
+<span>Ground Surveyor (1.7m)</span>
+</div>
+<span class="font-mono-data-sm text-[10px] text-outline">FIRST-PERS</span>
+</button>
+</div>
+<!-- Real-time Viewport Telemetry Box -->
+<div class="bg-surface-container-lowest/80 backdrop-blur-md px-3 py-2 rounded shadow-lg flex flex-col gap-1 w-56 font-mono-data-sm text-[11px]">
+<div class="flex justify-between text-on-surface-variant">
+<span>SURVEY RESOLUTION:</span>
+<span class="text-primary font-semibold">1.48M pts/m²</span>
+</div>
+<div class="flex justify-between text-on-surface-variant">
+<span>ACTIVE LOD LEVEL:</span>
+<span class="text-on-surface">Octree Level 6</span>
+</div>
+<div class="flex justify-between text-on-surface-variant">
+<span>CAMERA POS:</span>
+<span class="text-secondary font-medium">X:412 Y:289 Z:68</span>
+</div>
+</div>
+</div>
+<!-- LEFT: Precision GIS & Inspection Tool Palette -->
+<div class="absolute left-6 top-20 z-30 flex flex-col gap-2 pointer-events-auto">
+<div class="bg-surface-container-lowest/85 backdrop-blur-xl p-1.5 rounded shadow-2xl flex flex-col gap-1">
+<!-- Pinpoint Probe (Active) -->
+<button class="flex items-center gap-3 px-3 py-2 rounded bg-surface-container-high text-primary-container shadow-[inset_0_0_8px_rgba(0,240,255,0.2)] transition-all group" title="Pin Point Height Probe">
+<span class="material-symbols-outlined text-[20px] group-hover:scale-110 transition-transform">location_searching</span>
+<div class="flex flex-col text-left pr-2">
+<span class="font-mono-data-sm text-mono-data-sm font-semibold leading-tight">Height Probe</span>
+<span class="font-label-caps text-[9px] text-primary-fixed-dim">INSPECTING WH-3</span>
+</div>
+</button>
+<!-- Rooftop Height Measurement Tool -->
+<button class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-all group" title="Vertical Height Measurement">
+<span class="material-symbols-outlined text-[20px] text-secondary group-hover:scale-110 transition-transform">height</span>
+<div class="flex flex-col text-left pr-2">
+<span class="font-mono-data-sm text-mono-data-sm font-medium leading-tight">Vertical Caliper</span>
+<span class="font-label-caps text-[9px] text-on-surface-variant">ΔH CRANE: 76.2m</span>
+</div>
+</button>
+<!-- Area & Footprint Extrusion Inspector -->
+<button class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-all group" title="Area Footprint Inspector">
+<span class="material-symbols-outlined text-[20px] group-hover:scale-110 transition-transform">polyline</span>
+<div class="flex flex-col text-left pr-2">
+<span class="font-mono-data-sm text-mono-data-sm font-medium leading-tight">Footprint Extrusion</span>
+<span class="font-label-caps text-[9px] text-outline">POLYGON CLASSIFIER</span>
+</div>
+</button>
+<!-- Cross-section Slice -->
+<button class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-all group" title="Cross-section Elevation Slice">
+<span class="material-symbols-outlined text-[20px] text-primary-fixed-dim group-hover:scale-110 transition-transform">call_split</span>
+<div class="flex flex-col text-left pr-2">
+<span class="font-mono-data-sm text-mono-data-sm font-medium leading-tight">Elevation Slice</span>
+<span class="font-label-caps text-[9px] text-primary-fixed-dim">SECTION A-B ACTIVE</span>
+</div>
+</button>
+<div class="w-full h-px bg-surface-container-high my-1"></div>
+<!-- Quick Flight Reset / Hover Lock Toggle -->
+<button class="flex items-center gap-3 px-3 py-2 rounded bg-surface-container-low text-secondary font-mono-data-sm text-mono-data-sm hover:bg-surface-container transition-colors" id="btn-hover-lock">
+<span class="material-symbols-outlined text-[18px]">lock</span>
+<span>Hover Lock [ON]</span>
+</button>
+</div>
+<!-- Active Measurement Micro-Card Floating Docked -->
+<div class="bg-surface-container-lowest/90 backdrop-blur-xl p-3 rounded shadow-xl max-w-[240px] flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-label-caps text-label-caps text-secondary uppercase">CALIPER TELEMETRY</span>
+<span class="material-symbols-outlined text-secondary text-[16px]">verified</span>
+</div>
+<div class="flex flex-col">
+<span class="font-mono-data-lg text-mono-data-lg text-primary font-bold">76.240 m</span>
+<span class="font-mono-data-sm text-[11px] text-on-surface-variant leading-tight">True Vertical Height (Gantry Crane Top to Ground Baseline)</span>
+</div>
+<div class="w-full bg-surface-container rounded-full h-1.5 overflow-hidden">
+<div class="bg-primary-container h-full w-[84%]"></div>
+</div>
+<div class="flex justify-between font-mono-data-sm text-[9px] text-outline">
+<span>ACCURACY: ±1.2mm</span>
+<span>SRTM30 VERIFIED</span>
+</div>
+</div>
+</div>
+<!-- BOTTOM HUD PANEL: Real-time 2D Cross-Section Profile & Simulator Controls Helper -->
+<div class="absolute bottom-4 left-6 right-6 z-30 pointer-events-auto flex flex-col md:flex-row gap-3 items-stretch">
+<!-- 2D Cross-Section Elevation Graph across survey vector A-B -->
+<div class="flex-1 bg-surface-container-lowest/90 backdrop-blur-xl p-3.5 rounded shadow-2xl flex flex-col justify-between min-h-[145px]">
+<div class="flex items-center justify-between pb-1.5 border-b border-surface-container-high">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary-container text-[18px]">ssid_chart</span>
+<span class="font-mono-data-sm text-mono-data-sm text-on-surface font-semibold">SURFACE CROSS-SECTION PROFILE [LINE A-B]</span>
+<span class="font-mono-data-sm text-[10px] text-on-surface-variant font-normal">Distance: 480.2m</span>
+</div>
+<div class="flex items-center gap-4 font-mono-data-sm text-mono-data-sm">
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-0.5 bg-primary-container"></span>
+<span class="text-primary-fixed-dim">Extruded Surface</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-0.5 bg-secondary"></span>
+<span class="text-secondary">UAV Flight Line</span>
+</div>
+</div>
+</div>
+<!-- Inline SVG Cross-Section Elevation Graph -->
+<div class="relative w-full h-20 mt-1">
+<svg class="w-full h-full" preserveaspectratio="none" viewbox="0 0 800 100">
+<!-- Grid lines -->
+<line stroke="#262A35" stroke-dasharray="4,4" stroke-width="1" x1="0" x2="800" y1="25" y2="25"></line>
+<line stroke="#262A35" stroke-dasharray="4,4" stroke-width="1" x1="0" x2="800" y1="50" y2="50"></line>
+<line stroke="#262A35" stroke-dasharray="4,4" stroke-width="1" x1="0" x2="800" y1="75" y2="75"></line>
+<!-- Elevation Baseline Area Gradient -->
+<defs>
+<lineargradient id="elevGradient" x1="0" x2="0" y1="0" y2="1">
+<stop offset="0%" stop-color="#00F0FF" stop-opacity="0.35"></stop>
+<stop offset="100%" stop-color="#00F0FF" stop-opacity="0.0"></stop>
+</lineargradient>
+</defs>
+<!-- Extruded elevation terrain profile line -->
+<!-- Path: Sea/Dock ground -> Crane peak (100-76.2) -> Ground -> Warehouse 3 (24.1m) -> Container Stack -> Ground -->
+<path d="M 0,90 
+                     L 80,90 
+                     L 120,90 
+                     L 130,12 
+                     L 155,12 
+                     L 165,90 
+                     L 280,90 
+                     L 290,62 
+                     L 460,62 
+                     L 470,90 
+                     L 540,90 
+                     L 550,48 
+                     L 680,48 
+                     L 690,90 
+                     L 800,90 
+                     L 800,100 
+                     L 0,100 Z" fill="url(#elevGradient)"></path>
+<path d="M 0,90 
+                     L 80,90 
+                     L 120,90 
+                     L 130,12 
+                     L 155,12 
+                     L 165,90 
+                     L 280,90 
+                     L 290,62 
+                     L 460,62 
+                     L 470,90 
+                     L 540,90 
+                     L 550,48 
+                     L 680,48 
+                     L 690,90 
+                     L 800,90" fill="none" stroke="#00F0FF" stroke-width="2"></path>
+<!-- UAV Flight Altitude Reference Line (Constant 68.4m) -->
+<line stroke="#4EDEA3" stroke-dasharray="6,4" stroke-width="1.5" x1="0" x2="800" y1="26" y2="26"></line>
+<!-- Active Marker Crane Top -->
+<circle cx="142" cy="12" fill="#00F0FF" r="4"></circle>
+<text fill="#DBFCFF" font-family="JetBrains Mono" font-size="10" x="148" y="10">CRANE #1 (76.2m)</text>
+<!-- Active Marker Warehouse 3 -->
+<circle cx="375" cy="62" fill="#4EDEA3" r="4"></circle>
+<text fill="#4EDEA3" font-family="JetBrains Mono" font-size="10" x="382" y="58">WH-3 ROOF (24.1m)</text>
+</svg>
+<!-- Graph Axis Labels -->
+<div class="absolute bottom-0 left-0 right-0 flex justify-between font-mono-data-sm text-[9px] text-outline pointer-events-none">
+<span>[A] Berth Edge 0.0m</span>
+<span>Crane Rails (140m)</span>
+<span>WH-3 Baseline (360m)</span>
+<span>Container Block B (560m)</span>
+<span>[B] Terminal Gate 480m</span>
+</div>
+</div>
+</div>
+<!-- Flight Simulator Controls Key-Mapping Helper & Engine Vitals -->
+<div class="bg-surface-container-lowest/90 backdrop-blur-xl p-3.5 rounded shadow-2xl flex flex-col justify-between w-full md:w-80 shrink-0">
+<div class="flex items-center justify-between pb-1.5 border-b border-surface-container-high">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase">FLIGHT COCKPIT BINDS</span>
+<span class="font-mono-data-sm text-[10px] text-secondary flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>SIM ACTIVE
+          </span>
+</div>
+<div class="grid grid-cols-2 gap-1.5 py-1 text-on-surface font-mono-data-sm text-mono-data-sm">
+<div class="flex items-center gap-1.5">
+<kbd class="px-1.5 py-0.5 bg-surface-container rounded text-primary-fixed-dim font-bold text-[10px]">W / S</kbd>
+<span class="text-[11px] text-on-surface-variant">Pitch &amp; Fwd</span>
+</div>
+<div class="flex items-center gap-1.5">
+<kbd class="px-1.5 py-0.5 bg-surface-container rounded text-primary-fixed-dim font-bold text-[10px]">A / D</kbd>
+<span class="text-[11px] text-on-surface-variant">Yaw / Turn</span>
+</div>
+<div class="flex items-center gap-1.5">
+<kbd class="px-1.5 py-0.5 bg-surface-container rounded text-primary-fixed-dim font-bold text-[10px]">Q / E</kbd>
+<span class="text-[11px] text-on-surface-variant">Elevation ±</span>
+</div>
+<div class="flex items-center gap-1.5">
+<kbd class="px-1.5 py-0.5 bg-surface-container rounded text-primary-fixed-dim font-bold text-[10px]">Space</kbd>
+<span class="text-[11px] text-on-surface-variant">Hover Lock</span>
+</div>
+<div class="col-span-2 flex items-center gap-1.5 pt-0.5">
+<kbd class="px-1.5 py-0.5 bg-surface-container rounded text-secondary font-bold text-[10px]">Click + Drag</kbd>
+<span class="text-[11px] text-on-surface-variant">Free Orbit / Probe Elevation</span>
+</div>
+</div>
+<div class="flex items-center justify-between pt-1 border-t border-surface-container-high font-mono-data-sm text-[10px] text-outline">
+<span>THRUST: 64%</span>
+<span>BATTERY: 82% (28 MIN)</span>
+<span class="text-primary-fixed-dim font-medium">60 FPS</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<script>
+  (function() {
+    // 3D Spatial Simulator Micro-Interactions
+    const world = document.getElementById('spatial-world');
+    const viewport = document.getElementById('viewport-canvas');
+    const sunSlider = document.getElementById('sun-slider');
+    const sunLabel = document.getElementById('sun-label');
+    const sunCast = document.getElementById('sunlight-cast');
+
+    const btnOrtho = document.getElementById('btn-mode-ortho');
+    const btnWireframe = document.getElementById('btn-mode-wireframe');
+    const btnHeatmap = document.getElementById('btn-mode-heatmap');
+    const btnIsolines = document.getElementById('btn-mode-isolines');
+    const btnHoverLock = document.getElementById('btn-hover-lock');
+
+    const layerWireframe = document.getElementById('layer-wireframe');
+    const layerHeatmap = document.getElementById('layer-heatmap');
+    const layerIsolines = document.getElementById('layer-isolines');
+
+    let currentRotX = 58;
+    let currentRotZ = -24;
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let isHoverLocked = true;
+
+    // Viewport Drag-to-Rotate / Orbit
+    viewport.addEventListener('mousedown', (e) => {
+      // Don't drag if clicking directly on a floating control
+      if (e.target.closest('button') || e.target.closest('input') || e.target.closest('.pointer-events-auto')) {
+        return;
+      }
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const deltaX = e.clientX - startX;
+      const deltaY = e.clientY - startY;
+
+      currentRotZ += deltaX * 0.15;
+      currentRotX = Math.max(20, Math.min(85, currentRotX - deltaY * 0.15));
+
+      world.style.transform = `rotateX(${currentRotX}deg) rotateZ(${currentRotZ}deg) translateZ(20px)`;
+      startX = e.clientX;
+      startY = e.clientY;
+    });
+
+    window.addEventListener('mouseup', () => {
+      isDragging = false;
+    });
+
+    // Sun Angle Time Slider
+    sunSlider.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      const hours = Math.floor(val);
+      const mins = (val % 1 === 0.5) ? '30' : '00';
+      sunLabel.textContent = `${hours}:${mins} EST`;
+
+      // Calculate shadow skew and opacity
+      const progress = (val - 8) / 10; // 0 (morning) to 1 (evening)
+      const skewX = -50 + (progress * 50);
+      sunCast.style.transform = `skewX(${skewX}deg)`;
+      sunCast.style.opacity = (0.5 + Math.abs(progress - 0.5)).toString();
+    });
+
+    // Layer Toggles
+    function resetModeButtons() {
+      [btnOrtho, btnWireframe, btnHeatmap, btnIsolines].forEach(btn => {
+        btn.className = "px-3 py-1 rounded font-mono-data-sm text-mono-data-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all";
+      });
+    }
+
+    function setActiveMode(btn) {
+      resetModeButtons();
+      btn.className = "px-3 py-1 rounded font-mono-data-sm text-mono-data-sm transition-all bg-primary-container text-on-primary-container font-semibold shadow-[0_0_12px_rgba(0,240,255,0.4)]";
+    }
+
+    btnOrtho.addEventListener('click', () => {
+      setActiveMode(btnOrtho);
+      layerWireframe.style.opacity = "0.2";
+      layerHeatmap.style.opacity = "0";
+      layerIsolines.style.opacity = "0";
+    });
+
+    btnWireframe.addEventListener('click', () => {
+      setActiveMode(btnWireframe);
+      layerWireframe.style.opacity = "0.85";
+      layerHeatmap.style.opacity = "0";
+      layerIsolines.style.opacity = "0";
+    });
+
+    btnHeatmap.addEventListener('click', () => {
+      setActiveMode(btnHeatmap);
+      layerHeatmap.style.opacity = "0.8";
+      layerWireframe.style.opacity = "0.3";
+      layerIsolines.style.opacity = "0";
+    });
+
+    btnIsolines.addEventListener('click', () => {
+      setActiveMode(btnIsolines);
+      layerIsolines.style.opacity = "0.75";
+      layerHeatmap.style.opacity = "0.2";
+      layerWireframe.style.opacity = "0.1";
+    });
+
+    // Hover lock toggle
+    btnHoverLock.addEventListener('click', () => {
+      isHoverLocked = !isHoverLocked;
+      if (isHoverLocked) {
+        btnHoverLock.innerHTML = `<span class="material-symbols-outlined text-[18px]">lock</span><span>Hover Lock [ON]</span>`;
+        btnHoverLock.className = "flex items-center gap-3 px-3 py-2 rounded bg-surface-container-low text-secondary font-mono-data-sm text-mono-data-sm hover:bg-surface-container transition-colors";
+      } else {
+        btnHoverLock.innerHTML = `<span class="material-symbols-outlined text-[18px]">lock_open</span><span>Hover Lock [OFF]</span>`;
+        btnHoverLock.className = "flex items-center gap-3 px-3 py-2 rounded bg-surface-container-low text-on-surface-variant font-mono-data-sm text-mono-data-sm hover:bg-surface-container transition-colors";
+      }
+    });
+
+    // WASD keyboard simulator nudges
+    window.addEventListener('keydown', (e) => {
+      if (['w', 'W', 'ArrowUp'].includes(e.key)) {
+        currentRotX = Math.min(85, currentRotX + 2);
+        world.style.transform = `rotateX(${currentRotX}deg) rotateZ(${currentRotZ}deg) translateZ(20px)`;
+      } else if (['s', 'S', 'ArrowDown'].includes(e.key)) {
+        currentRotX = Math.max(20, currentRotX - 2);
+        world.style.transform = `rotateX(${currentRotX}deg) rotateZ(${currentRotZ}deg) translateZ(20px)`;
+      } else if (['a', 'A', 'ArrowLeft'].includes(e.key)) {
+        currentRotZ -= 3;
+        world.style.transform = `rotateX(${currentRotX}deg) rotateZ(${currentRotZ}deg) translateZ(20px)`;
+      } else if (['d', 'D', 'ArrowRight'].includes(e.key)) {
+        currentRotZ += 3;
+        world.style.transform = `rotateX(${currentRotX}deg) rotateZ(${currentRotZ}deg) translateZ(20px)`;
+      }
+    });
+  })();
+</script></main><footer class="w-full bg-surface-container-lowest py-space-lg text-on-surface-variant"><div class="w-full px-margin flex flex-col md:flex-row items-center justify-between gap-space-md font-mono-data-sm text-mono-data-sm"><div>© 2025 AeroMesh AI Precision Photogrammetry Core. Millimeter-scale Geodetic Surface Mesh Engine.</div><div class="flex items-center gap-space-lg"><span class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>EPSG: 4326 (WGS 84)</span><span>SRTM30 Telemetry Uplink Active</span><span class="text-primary-fixed-dim">Mesh Point Density: 1.48M pts/m²</span></div></div></footer></body></html>

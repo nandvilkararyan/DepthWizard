@@ -2,7 +2,7 @@ import os
 import sys
 import uuid
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from contextlib import asynccontextmanager
 
 # Bootstrap project root directory into sys.path to prevent ModuleNotFoundError
@@ -20,6 +20,9 @@ import numpy as np
 from app.config import (
     OUTPUT_DIR,
     DEFAULT_MODEL_ID,
+    DEFAULT_MODEL_KEY,
+    SUPPORTED_MODELS,
+    resolve_model,
     DEFAULT_MIN_ELEVATION_METERS,
     DEFAULT_MAX_ELEVATION_METERS,
     get_device,
@@ -34,8 +37,44 @@ from app.modules.point_cloud_generator import PointCloudGenerator
 from app.modules.flood_simulator import simulate_flood
 
 
+class ModelManager:
+    """
+    Manages loading, active caching, and switching of Depth Anything V2 model variants.
+    Releases inactive model memory before loading a newly requested model to guarantee
+    safe RAM usage on CPU / limited hardware.
+    """
+    def __init__(self):
+        self.current_key: Optional[str] = None
+        self.extractor: Optional[DepthExtractor] = None
+
+    def get_extractor(self, model_key_or_id: Optional[str] = None) -> Tuple[DepthExtractor, Dict[str, Any]]:
+        cfg = resolve_model(model_key_or_id or DEFAULT_MODEL_KEY)
+        req_key = cfg["key"]
+
+        # Check if requested model is already active
+        if self.extractor is not None and self.current_key == req_key:
+            return self.extractor, cfg
+
+        print(f"[ModelManager] Switching model from '{self.current_key}' to '{cfg['name']}' ({cfg['id']})...")
+        if self.extractor is not None:
+            self.extractor.release()
+            self.extractor = None
+
+        self.extractor = DepthExtractor(model_id=cfg["id"])
+        self.current_key = req_key
+        return self.extractor, cfg
+
+    def get_current_info(self) -> Dict[str, Any]:
+        cfg = resolve_model(self.current_key or DEFAULT_MODEL_KEY)
+        return {
+            "current_key": self.current_key,
+            "model_info": cfg,
+            "loaded": self.extractor is not None
+        }
+
+
 # Global pipeline components
-depth_extractor: Optional[DepthExtractor] = None
+model_manager = ModelManager()
 scale_calibrator: Optional[ScaleCalibrator] = None
 task_store: Dict[str, Dict[str, Any]] = {}
 
@@ -51,21 +90,23 @@ async def lifespan(app: FastAPI):
     FastAPI Lifespan Context Manager.
     Pre-initializes the Depth Anything v2 model and scale calibrator on app startup.
     """
-    global depth_extractor, scale_calibrator
+    global scale_calibrator
     print("[FastAPI Startup] Initializing DSM extraction pipeline models...")
     try:
-        depth_extractor = DepthExtractor(model_id=DEFAULT_MODEL_ID)
+        model_manager.get_extractor(DEFAULT_MODEL_KEY)
         scale_calibrator = ScaleCalibrator(
             default_min_alt=DEFAULT_MIN_ELEVATION_METERS,
             default_max_alt=DEFAULT_MAX_ELEVATION_METERS
         )
-        print("[FastAPI Startup] Models loaded successfully!")
+        print("[FastAPI Startup] Default model and scale calibrator loaded successfully!")
     except Exception as e:
         print(f"[FastAPI Startup WARNING] Model initialization deferred to first request: {e}")
     
     yield
     
     print("[FastAPI Shutdown] Cleaning up resources...")
+    if model_manager.extractor is not None:
+        model_manager.extractor.release()
 
 
 app = FastAPI(
@@ -107,11 +148,15 @@ async def root_redirect():
     return RedirectResponse(url="/app/index.html")
 
 
-def get_depth_extractor() -> DepthExtractor:
-    global depth_extractor
-    if depth_extractor is None:
-        depth_extractor = DepthExtractor(model_id=DEFAULT_MODEL_ID)
-    return depth_extractor
+@app.get("/simulator", include_in_schema=False)
+async def simulator_redirect():
+    """Redirect /simulator to the 3D simulator page."""
+    return RedirectResponse(url="/app/simulator.html")
+
+
+def get_depth_extractor(model_id: Optional[str] = None) -> DepthExtractor:
+    extractor, _ = model_manager.get_extractor(model_id)
+    return extractor
 
 
 def get_scale_calibrator() -> ScaleCalibrator:
@@ -128,11 +173,24 @@ def get_scale_calibrator() -> ScaleCalibrator:
 async def health_check() -> Dict[str, Any]:
     """Diagnostic health check endpoint."""
     device = get_device()
+    curr = model_manager.get_current_info()
     return {
         "status": "online",
         "device": device,
-        "model_id": DEFAULT_MODEL_ID,
+        "current_model": curr["model_info"]["name"],
+        "current_model_key": curr["current_key"],
         "output_directory": str(OUTPUT_DIR)
+    }
+
+
+@app.get("/api/models", tags=["Model Registry"])
+async def list_models() -> Dict[str, Any]:
+    """Returns available Depth Anything V2 model variants and active model key."""
+    return {
+        "status": "success",
+        "current_key": model_manager.current_key or DEFAULT_MODEL_KEY,
+        "default_key": DEFAULT_MODEL_KEY,
+        "models": list(SUPPORTED_MODELS.values())
     }
 
 
@@ -140,6 +198,7 @@ async def health_check() -> Dict[str, Any]:
 async def process_image(
     file: UploadFile = File(..., description="Optical input image (PNG, JPG, or GeoTIFF)"),
     ref_dem: Optional[UploadFile] = File(None, description="Optional low-resolution reference DEM GeoTIFF (e.g. SRTM 30m)"),
+    model_id: str = Form(DEFAULT_MODEL_KEY, description="Selected model key or HuggingFace ID"),
     min_alt: float = Form(DEFAULT_MIN_ELEVATION_METERS, description="Fallback minimum elevation in meters if uncalibrated"),
     max_alt: float = Form(DEFAULT_MAX_ELEVATION_METERS, description="Fallback maximum elevation in meters if uncalibrated"),
     tile_size: int = Form(512, description="Sliding window tile size in pixels"),
@@ -197,8 +256,8 @@ async def process_image(
         if ref_dem_filepath is not None:
             reference_dem_arr, reference_dem_meta = load_reference_dem(str(ref_dem_filepath))
 
-        # Module A: Single-View Depth Extraction with Tiled Hann Window Blending
-        extractor = get_depth_extractor()
+        # Module A: Single-View Depth Extraction with user-selected model
+        extractor, model_cfg = model_manager.get_extractor(model_id)
         predicted_depth = extractor.extract_depth(
             rgb_image=rgb_image,
             tile_size=tile_size,
@@ -280,6 +339,18 @@ async def process_image(
             img_shape=rgb_image.shape[:2],
             output_filepath=metadata_json_path
         )
+        meta_payload["model_info"] = {
+            "key": model_cfg["key"],
+            "name": model_cfg["name"],
+            "id": model_cfg["id"],
+            "variant": model_cfg.get("variant", "Unknown"),
+            "params": model_cfg.get("params", "Unknown"),
+            "size_mb": model_cfg.get("size_mb", 0)
+        }
+        import json
+        with open(metadata_json_path, "w", encoding="utf-8") as f:
+            json.dump(meta_payload, f, indent=2)
+
         task_store[task_id]["metadata_path"] = metadata_json_path
 
         # Module D: Point Cloud & Surface Mesh (requires open3d + trimesh)
@@ -324,6 +395,8 @@ async def process_image(
         return {
             "task_id": task_id,
             "status": "success",
+            "model_used": model_cfg["name"],
+            "model_key": model_cfg["key"],
             "metadata": meta_payload,
             "download_urls": download_urls
         }

@@ -209,7 +209,36 @@ class OutputFormatter:
         height, width = img_shape
         aspect_ratio = float(width) / float(height) if height > 0 else 1.0
 
-        suggested_disp_scale = float(np.clip(0.35 + (calib_result.elevation_range / 500.0) * 0.45, 0.35, 1.0))
+        # ── suggested_disp_scale: visual displacement scale for the 3D viewer ──────
+        # The Three.js terrain plane is 8 units wide × 8 units deep.
+        # A dispScale of 1.6 gives a ~20% height-to-width ratio, which is
+        # perceptually correct for most terrain (mountains, urban areas, etc.).
+        #
+        # For relative rDSM (calibration_type == 'relative_rdsm' or 'relative_fallback'):
+        #   elevation_range is in depth_model_units × 100 (e.g., 30–150 relative units).
+        #   We target a fixed perceptual scale since we don't know the real world range.
+        #
+        # For metric calibrations (SRTM, reference_dem):
+        #   elevation_range is in real meters. We scale proportionally:
+        #   a 500m range on an ~8km wide scene should look tall (scale ≈ 1.6),
+        #   while a 10m range should look flat (scale ≈ 0.3).
+        #
+        # Formula: target 20% of terrain plane width as max displacement.
+        # Terrain plane width = 8 units. Target dispScale for "normal" relief = 1.6.
+        calib_type = calib_result.calibration_type
+        elev_range = calib_result.elevation_range
+        if calib_type in ("relative_rdsm", "relative_fallback"):
+            # Relative mode: use a perceptual default that makes depth variation visible.
+            # The depth model outputs values in [0, ~1.5]; ×100 → elevation_range ≈ 30–150.
+            # Normalize to a 0–1 visual scale using 100 as the "full relief" reference,
+            # then map to [0.8, 2.0] so terrain always looks 3D.
+            norm_relief = float(np.clip(elev_range / 100.0, 0.1, 2.0))
+            suggested_disp_scale = float(np.clip(0.8 + norm_relief * 1.2, 0.8, 2.0))
+        else:
+            # Metric mode (SRTM / reference DEM): proportional to real elevation range.
+            # 500m range on a ~4km wide scene → scale 1.6 (same as Mapbox terrain tiles).
+            # Clamp to [0.4, 3.0] to handle extreme ranges gracefully.
+            suggested_disp_scale = float(np.clip(0.35 + (elev_range / 300.0) * 1.25, 0.4, 3.0))
 
         metadata = {
             "scene_geometry": {

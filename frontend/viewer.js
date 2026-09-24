@@ -33,6 +33,8 @@ let terrainHeightImage = null;
 let inspectionCard = null;
 let animFrameId = null;
 let _lastMetadata = null; // saved for dispScale re-calc by setElevationScale
+let _lastTerrainWidth = 8.0;
+let _lastTerrainDepth = 8.0;
 
 // Flythrough state
 let isFlying = false; // disabled by default for better manual 3D control
@@ -47,7 +49,7 @@ let sunAngle = 45;
 
 /* ── Mesh overlay state ───────────────────────────────────────────── */
 let meshOverlayGroup = null; // THREE.Group holding the loaded GLB
-let meshOverlayVisible = true;
+let meshOverlayVisible = false;
 
 /* ── Flood simulator state ─────────────────────────────────────────── */
 const _flood = {
@@ -75,26 +77,31 @@ function _floodEvent(detail) {
 export function initViewer(canvasEl) {
   renderer = new THREE.WebGLRenderer({
     canvas: canvasEl,
-    antialias: true,
+    antialias: false,           // disabled — too expensive; visual quality is fine without it
     alpha: false,
+    powerPreference: 'high-performance',
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // cap at 1.5 — avoids 4× fill rate on HiDPI
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;   // BasicShadowMap is fastest; PCF is a good middle ground
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.3;
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x070b17);
-  scene.fog = new THREE.FogExp2(0x070b17, 0.12);
+  scene.fog = new THREE.FogExp2(0x070b17, 0.04);  // light initial fog; adjusted after terrain loads
 
-  // Camera
+  // Camera — use window dimensions as safe fallback since the canvas has no
+  // pixel dimensions yet (it uses CSS 'w-full h-full' which resolves to 0 at
+  // script execution time before the first layout paint).
+  const initW = canvasEl.clientWidth  || window.innerWidth;
+  const initH = canvasEl.clientHeight || window.innerHeight;
   camera = new THREE.PerspectiveCamera(
     55,
-    canvasEl.clientWidth / canvasEl.clientHeight,
+    initW / initH,
     0.01,
-    100,
+    200,                // generous initial far; _frameTerrain will update this
   );
   // Set initial camera position for proper 3D viewing angle (not top-down)
   camera.position.set(5, 4, 5);
@@ -121,7 +128,7 @@ export function initViewer(canvasEl) {
   sun.target.position.set(0, 0, 0);
   scene.add(sun.target);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(1024, 1024);   // 2048 was too expensive; 1024 is indistinguishable at this scale
   sun.shadow.camera.near = 0.1;
   sun.shadow.camera.far = 30;
   sun.shadow.camera.left = -8;
@@ -137,9 +144,25 @@ export function initViewer(canvasEl) {
   _addStars();
 
   // Resize handling
+  function _onResize() {
+    const parent = canvasEl.parentElement;
+    const w = parent.clientWidth  || window.innerWidth;
+    const h = parent.clientHeight || window.innerHeight;
+    if (!w || !h) return;                       // guard against zero dimensions
+    renderer.setSize(w, h, false);              // false = don't set canvas CSS size
+    canvasEl.style.width  = w + 'px';
+    canvasEl.style.height = h + 'px';
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+
   const ro = new ResizeObserver(() => _onResize());
   ro.observe(canvasEl.parentElement);
-  _onResize();
+  _onResizeFn = _onResize;  // expose for external forceResize() calls
+
+  // Defer first resize to the next paint so the browser has laid out the DOM
+  // and the parent element has real pixel dimensions (avoids 0/0 aspect NaN).
+  requestAnimationFrame(() => _onResize());
 
   // Mouse interaction → pause flythrough, enable orbit
   canvasEl.addEventListener("mousedown", _onUserInteract);
@@ -158,6 +181,15 @@ export function initViewer(canvasEl) {
     "display:none;position:absolute;z-index:20;pointer-events:none;background:rgba(7,11,23,.94);color:#fff;padding:10px 12px;border:1px solid rgba(126,200,227,.55);border-radius:8px;font:12px/1.5 sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.35)";
 
   _startRenderLoop();
+}
+
+/* ------------------------------------------------------------------ */
+/*  Public resize helper — call after canvas becomes visible           */
+/* ------------------------------------------------------------------ */
+let _onResizeFn = null;   // stored by initViewer so callers can trigger it
+
+export function forceResize() {
+  if (_onResizeFn) _onResizeFn();
 }
 
 /* ------------------------------------------------------------------ */
@@ -194,6 +226,8 @@ export async function loadTerrain(heightmapUrl, textureUrl, metadata) {
     metadata,
     heightTex.image,
   );
+  _lastTerrainWidth = width;
+  _lastTerrainDepth = depth;
   const geo = new THREE.PlaneGeometry(width, depth, segmentsX, segmentsY);
   geo.rotateX(-Math.PI / 2);
   geo.center();
@@ -209,6 +243,7 @@ export async function loadTerrain(heightmapUrl, textureUrl, metadata) {
     normalScale: new THREE.Vector2(0.8, 0.8),
     roughness: 0.88,
     metalness: 0.04,
+    wireframe: true,
   });
 
   terrainMesh = new THREE.Mesh(geo, mat);
@@ -217,13 +252,13 @@ export async function loadTerrain(heightmapUrl, textureUrl, metadata) {
   scene.add(terrainMesh);
   _frameTerrain(geo);
 
-  // Reset camera to flythrough start
+  // Set camera to orbit mode by default for immediate responsive control
   flyClock = new THREE.Clock();
-  isFlying = true;
-  controls.enabled = false;
+  isFlying = false;
+  controls.enabled = true;
 
-  // Adjust fog to terrain size
-  scene.fog.density = 0.08;
+  // Adjust fog to terrain size — low density so wireframe/mesh is always visible
+  scene.fog.density = 0.03;
 
   return terrainMesh;
 }
@@ -252,6 +287,8 @@ export async function loadTerrainHeightOnly(heightmapUrl, metadata) {
     metadata,
     heightTex.image,
   );
+  _lastTerrainWidth = width;
+  _lastTerrainDepth = depth;
   const geo = new THREE.PlaneGeometry(width, depth, segmentsX, segmentsY);
   geo.rotateX(-Math.PI / 2);
   geo.center();
@@ -297,12 +334,13 @@ export async function loadTerrainHeightOnly(heightmapUrl, metadata) {
  * mesh spans ±4 units in X/Z (terrain is 8×8) and the elevation
  * axis matches the displacement-map height.
  *
- * @param {string}  glbUrl   – URL served by FastAPI /files/
- * @param {object}  metadata – From the /process response
- * @param {number}  opacity  – Initial mesh opacity (default 0.88)
+ * @param {string}  glbUrl         – URL served by FastAPI /files/
+ * @param {object}  metadata       – From the /process response
+ * @param {number}  opacity        – Initial mesh opacity (default 0.10)
+ * @param {boolean} initialVisible – Whether visible initially (default false)
  * @returns {Promise<THREE.Group>}
  */
-export function loadMeshOverlay(glbUrl, metadata, opacity = 0.88) {
+export function loadMeshOverlay(glbUrl, metadata, opacity = 0.10, initialVisible = false) {
   // Clean up previous overlay if any
   disposeMeshOverlay();
 
@@ -318,8 +356,20 @@ export function loadMeshOverlay(glbUrl, metadata, opacity = 0.88) {
 
         // ── Co-registration with terrain plane ────────────────────────
         // Mesh spans X ∈ [-1,1], Z ∈ [-1,1], Y ∈ [0,1] (normalized).
-        // Terrain plane is 8×8 units with Y displaced by ±dispScale.
-        meshOverlayGroup.scale.set(4.0, dispScale, 4.0);
+        // Terrain plane is width×depth units (centered at origin).
+        // Scale X and Z to match the terrain plane end to end:
+        // scaleX = width / 2, scaleZ = depth / 2.
+        const aspect =
+          metadata?.scene_geometry?.aspect_ratio ||
+          _lastMetadata?.scene_geometry?.aspect_ratio ||
+          (_lastTerrainWidth / _lastTerrainDepth) ||
+          1.0;
+        const width = _lastTerrainWidth || 8.0;
+        const depth = _lastTerrainDepth || (8.0 / Math.max(aspect, 0.01));
+        const scaleX = width / 2.0;
+        const scaleZ = depth / 2.0;
+
+        meshOverlayGroup.scale.set(scaleX, dispScale, scaleZ);
         // Match terrain displacement bias (the plane is shifted down by 40% of dispScale)
         meshOverlayGroup.position.set(0, -dispScale * 0.4, 0);
 
@@ -327,33 +377,40 @@ export function loadMeshOverlay(glbUrl, metadata, opacity = 0.88) {
         meshOverlayGroup.traverse((child) => {
           if (!child.isMesh) return;
 
-          // Replace with a MeshStandardMaterial that shows vertex colors
+          // Replace with a MeshStandardMaterial that shows vertex colors if available, or vibrant cyan wireframe
+          const hasColors = !!(child.geometry && child.geometry.attributes && child.geometry.attributes.color);
           const newMat = new THREE.MeshStandardMaterial({
-            vertexColors: true,
+            color: hasColors ? 0xffffff : 0x00f0ff,
+            vertexColors: hasColors,
             roughness: 0.65,
             metalness: 0.05,
-            transparent: opacity < 1.0,
+            transparent: true,
             opacity: opacity,
             depthWrite: opacity >= 0.99, // disable depth write when transparent
+            wireframe: true, // Default wireframe mode enabled
+            side: THREE.DoubleSide,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1,
           });
 
-          // Keep original material side-setting if available
-          if (child.material && child.material.side !== undefined) {
-            newMat.side = THREE.DoubleSide;
+          if (child.material) {
+            if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
+            else child.material.dispose();
           }
-
-          child.material.dispose();
           child.material = newMat;
           child.castShadow = true;
           child.receiveShadow = true;
         });
 
+        meshOverlayVisible = initialVisible;
+        meshOverlayGroup.visible = initialVisible;
+        userMeshOpacity = opacity;
         scene.add(meshOverlayGroup);
-        meshOverlayVisible = true;
 
         console.log(
           `[Viewer] Mesh overlay loaded: ${glbUrl}  ` +
-            `(dispScale=${dispScale.toFixed(3)}, opacity=${opacity})`,
+            `(dispScale=${dispScale.toFixed(3)}, opacity=${opacity}, visible=${initialVisible})`,
         );
         resolve(meshOverlayGroup);
       },
@@ -383,6 +440,16 @@ export function setMeshOpacity(val) {
 }
 
 /**
+ * Explicitly set the mesh overlay visibility.
+ * @param {boolean} visible
+ */
+export function setMeshVisible(visible) {
+  if (!meshOverlayGroup) return;
+  meshOverlayVisible = !!visible;
+  meshOverlayGroup.visible = meshOverlayVisible;
+}
+
+/**
  * Toggle the mesh overlay visibility.
  * @returns {boolean} New visible state
  */
@@ -408,6 +475,17 @@ export function setMeshWireframe(on) {
 }
 
 /**
+ * Switch the terrain plane to wireframe mode.
+ * @param {boolean} on
+ */
+export function setTerrainWireframe(on) {
+  if (terrainMesh && terrainMesh.material) {
+    terrainMesh.material.wireframe = on;
+    terrainMesh.material.needsUpdate = true;
+  }
+}
+
+/**
  * Dispose the mesh overlay and remove it from the scene.
  */
 export function disposeMeshOverlay() {
@@ -428,8 +506,18 @@ export function disposeMeshOverlay() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Camera Controls API                                                 */
+/*  Camera & Flight Controls API                                        */
 /* ------------------------------------------------------------------ */
+const _keysDown = {};
+
+export function setKeyDown(key) {
+  if (key) _keysDown[key.toLowerCase()] = true;
+}
+
+export function setKeyUp(key) {
+  if (key) _keysDown[key.toLowerCase()] = false;
+}
+
 export function toggleFlythrough() {
   isFlying = !isFlying;
   controls.enabled = !isFlying;
@@ -444,10 +532,45 @@ export function setFlythrough(active) {
 }
 
 export function resetCamera() {
-  flyClock = new THREE.Clock();
-  isFlying = true;
-  controls.enabled = false;
-  controls.reset();
+  isFlying = false;
+  if (controls) {
+    controls.enabled = true;
+    controls.target.set(0, 0, 0);
+  }
+  if (camera) {
+    camera.position.set(5, 4, 5);
+    camera.lookAt(0, 0, 0);
+  }
+  if (controls) controls.update();
+}
+
+export function setCameraNadir() {
+  isFlying = false;
+  if (controls) {
+    controls.enabled = true;
+    controls.target.set(0, 0, 0);
+  }
+  if (camera) {
+    camera.position.set(0, 9, 0.001);
+    camera.lookAt(0, 0, 0);
+  }
+  if (controls) controls.update();
+}
+
+export async function setTerrainTexture(url) {
+  if (!terrainMesh || !url) return;
+  const loader = new THREE.TextureLoader();
+  try {
+    const tex = await loader.loadAsync(url);
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    if (terrainMesh.material) {
+      terrainMesh.material.map = tex;
+      terrainMesh.material.needsUpdate = true;
+    }
+  } catch (err) {
+    console.warn("[Viewer] Failed to switch terrain texture:", err);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -473,7 +596,13 @@ export function setElevationScale(val) {
 
     // Also re-scale the mesh overlay to stay registered
     if (meshOverlayGroup) {
-      meshOverlayGroup.scale.set(4.0, dispScale, 4.0);
+      const aspect =
+        _lastMetadata?.scene_geometry?.aspect_ratio ||
+        (_lastTerrainWidth / _lastTerrainDepth) ||
+        1.0;
+      const width = _lastTerrainWidth || 8.0;
+      const depth = _lastTerrainDepth || (8.0 / Math.max(aspect, 0.01));
+      meshOverlayGroup.scale.set(width / 2.0, dispScale, depth / 2.0);
       meshOverlayGroup.position.y = -dispScale * 0.4;
     }
 
@@ -789,13 +918,43 @@ export function setSunAngle(degrees) {
 /* ------------------------------------------------------------------ */
 /*  Render loop                                                         */
 /* ------------------------------------------------------------------ */
+
+// Pre-allocated vectors — avoids `new THREE.Vector3()` every frame (GC pressure)
+const _fwdVec = new THREE.Vector3();
+const _rightVec = new THREE.Vector3();
+
 function _startRenderLoop() {
   if (animFrameId) cancelAnimationFrame(animFrameId);
 
-  function tick() {
+  // Target 60 FPS max (≈16.67ms per frame). On 120 Hz monitors this halves
+  // GPU load with no perceptible visual difference for a terrain viewer.
+  const TARGET_MS = 1000 / 60;
+  let _lastFrameTime = 0;
+
+  function tick(now) {
     animFrameId = requestAnimationFrame(tick);
 
-    if (isFlying) {
+    // Frame rate cap — skip render if we're ahead of schedule
+    const elapsed = now - _lastFrameTime;
+    if (elapsed < TARGET_MS - 1) return;   // -1ms tolerance for timer jitter
+    _lastFrameTime = now - (elapsed % TARGET_MS);
+
+    const hasFlightKeys = _keysDown['w'] || _keysDown['s'] || _keysDown['a'] || _keysDown['d'] || _keysDown['q'] || _keysDown['e'];
+    if (hasFlightKeys && camera) {
+      const speed = Math.max(0.04, (flySpeed || 0.1) * 1.5);
+      camera.getWorldDirection(_fwdVec);
+      _rightVec.crossVectors(_fwdVec, camera.up).normalize();
+
+      if (_keysDown['w']) camera.position.addScaledVector(_fwdVec, speed);
+      if (_keysDown['s']) camera.position.addScaledVector(_fwdVec, -speed);
+      if (_keysDown['a']) camera.position.addScaledVector(_rightVec, -speed);
+      if (_keysDown['d']) camera.position.addScaledVector(_rightVec, speed);
+      if (_keysDown['q']) camera.position.y += speed;
+      if (_keysDown['e']) camera.position.y -= speed;
+      if (controls && controls.enabled) {
+        controls.target.addScaledVector(_fwdVec, (_keysDown['w'] ? speed : 0) - (_keysDown['s'] ? speed : 0));
+      }
+    } else if (isFlying) {
       const t = flyClock.getElapsedTime() * flySpeed;
       camera.position.x = Math.sin(t) * flyPathRadius;
       camera.position.z = Math.cos(t) * flyPathRadius;
@@ -817,7 +976,7 @@ function _startRenderLoop() {
     renderer.render(scene, camera);
   }
 
-  tick();
+  tick(0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -825,7 +984,7 @@ function _startRenderLoop() {
 /* ------------------------------------------------------------------ */
 
 let currentViewMode = "combined"; // 'mesh-only', 'threejs-only', 'combined'
-let userMeshOpacity = 0.88;
+let userMeshOpacity = 0.10;
 
 /**
  * Sets the 3D model viewing mode:
@@ -856,11 +1015,24 @@ export function setViewMode(mode) {
  * Uses suggested_disp_scale sweet-spot from Module B if available, or fallback.
  */
 function _computeDispScale(metadata) {
-  const minElev = metadata?.elevation_metrics?.min_elevation_meters ?? 0;
-  const maxElev = metadata?.elevation_metrics?.max_elevation_meters ?? 100;
-  const elevRange = maxElev - minElev || 1;
-  const baseDisp = metadata?.elevation_metrics?.suggested_disp_scale 
-    ?? Math.min(1.2, Math.max(0.35, 0.35 + (elevRange / 500.0) * 0.45));
+  const minElev = Number(
+    metadata?.elevation_metrics?.min_elevation_meters ??
+    metadata?.calibration?.min_elevation_m ??
+    0
+  );
+  const maxElev = Number(
+    metadata?.elevation_metrics?.max_elevation_meters ??
+    metadata?.calibration?.max_elevation_m ??
+    100
+  );
+  const elevRange = Math.max(maxElev - minElev, 1);
+
+  // Use backend's suggested_disp_scale if present (preferred — it's calibrated to scene type).
+  // Fallback: target ~20% height-to-width ratio on the 8-unit terrain plane (dispScale ≈ 1.5).
+  // The old formula (0.35 + range/500 * 0.45) always produced near-minimum values (≈0.35–0.42)
+  // for typical relative rDSM ranges, making all terrain appear flat.
+  const baseDisp = metadata?.elevation_metrics?.suggested_disp_scale
+    ?? Math.min(2.5, Math.max(0.8, 0.8 + (elevRange / 100.0) * 1.2));
   const dispScale = baseDisp * elevationScale;
   return { elevRange, dispScale, minElev, maxElev };
 }
@@ -900,16 +1072,17 @@ function _applyHeightDisplacement(geometry, image, scale, bias) {
   dataMax = p99;
   const dataRange = Math.max(dataMax - dataMin, 1);
 
-  // Multi-pass 5x5 mean filter to remove pixel noise & spiky needle artifacts,
-  // creating smooth natural surfaces for buildings and terrain
-  for (let pass = 0; pass < 4; pass++) {
+  // Multi-pass 3×3 mean filter to remove pixel noise & spiky needle artifacts.
+  // 2 passes of a 3×3 kernel is equivalent to a wider smooth but 4× faster than
+  // the previous 4-pass 5×5 (100M ops → ~18M ops on a 1024² image).
+  for (let pass = 0; pass < 2; pass++) {
     const smoothed = new Float32Array(imgW * imgH);
     for (let y = 0; y < imgH; y++) {
       for (let x = 0; x < imgW; x++) {
         let sum = 0;
         let count = 0;
-        for (let dy = -2; dy <= 2; dy++) {
-          for (let dx = -2; dx <= 2; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
             const ny = y + dy;
             const nx = x + dx;
             if (ny >= 0 && ny < imgH && nx >= 0 && nx < imgW) {
@@ -926,22 +1099,6 @@ function _applyHeightDisplacement(geometry, image, scale, bias) {
     }
   }
 
-  // Smooth edge-tapering along the outer 4% border to prevent perimeter wall curtain spikes
-  const borderMarginX = Math.round(imgW * 0.04);
-  const borderMarginY = Math.round(imgH * 0.04);
-  for (let y = 0; y < imgH; y++) {
-    for (let x = 0; x < imgW; x++) {
-      let edgeFactor = 1.0;
-      if (x < borderMarginX) edgeFactor *= (x / borderMarginX);
-      else if (x >= imgW - borderMarginX) edgeFactor *= ((imgW - 1 - x) / borderMarginX);
-      if (y < borderMarginY) edgeFactor *= (y / borderMarginY);
-      else if (y >= imgH - borderMarginY) edgeFactor *= ((imgH - 1 - y) / borderMarginY);
-      
-      // Smooth S-curve transition
-      edgeFactor = edgeFactor * edgeFactor * (3.0 - 2.0 * edgeFactor);
-      heightMap[y * imgW + x] = dataMin + (heightMap[y * imgW + x] - dataMin) * edgeFactor;
-    }
-  }
 
   // Apply displacement to geometry vertices
   const positions = geometry.attributes.position;
@@ -975,6 +1132,7 @@ function _frameTerrain(geometry) {
   // Use a generous far plane: at least 4× the terrain radius, minimum 200 units,
   // to ensure the water plane never gets clipped for large elevation ranges.
   camera.far = Math.max(200, radius * 20);
+  camera.updateProjectionMatrix();   // CRITICAL: must call after changing near/far
   camera.position.set(radius * 0.95, radius * 0.7, radius * 1.15);
   camera.lookAt(0, 0, 0);
   controls.target.set(0, 0, 0);
@@ -1080,8 +1238,10 @@ function _terrainGeometry(metadata, image) {
     metadata?.scene_geometry?.aspect_ratio || image?.width / image?.height || 1;
   const width = 8;
   const depth = 8 / Math.max(aspect, 0.01);
-  // Fixed 512×512 segments for consistent, high-quality mesh
-  return { width, depth, segmentsX: 512, segmentsY: 512 };
+  // 256×256 segments gives 66K vertices — ¼ of the old 512×512 (263K verts).
+  // Visual quality is identical since height values are sampled from a smooth
+  // 8-bit image; extra segments add no new detail at this scale.
+  return { width, depth, segmentsX: 256, segmentsY: 256 };
 }
 
 function _heightNormalMap(image) {

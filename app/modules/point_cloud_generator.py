@@ -312,15 +312,15 @@ class PointCloudGenerator:
         H, W = metric_dsm.shape
 
         # ── Choose grid resolution ─────────────────────────────────────────
-        step_h = max(1, H // self.MAX_GRID_RES)
-        step_w = max(1, W // self.MAX_GRID_RES)
-        # Build the sampling grid
-        row_idx = np.arange(0, H, step_h)
-        col_idx = np.arange(0, W, step_w)
+        num_h = min(H, self.MAX_GRID_RES)
+        num_w = min(W, self.MAX_GRID_RES)
+        # Using linspace ensures row 0 and row H-1, and col 0 and col W-1 are
+        # strictly included, spanning [-1, 1] exactly end to end without border drift.
+        row_idx = np.unique(np.round(np.linspace(0, H - 1, num_h)).astype(int))
+        col_idx = np.unique(np.round(np.linspace(0, W - 1, num_w)).astype(int))
         GH, GW  = len(row_idx), len(col_idx)
         logger.info(
-            f"[PointCloudGenerator/SciPy] Grid: {GH}×{GW} "
-            f"(step_h={step_h}, step_w={step_w})"
+            f"[PointCloudGenerator/SciPy] Grid: {GH}×{GW} end-to-end"
         )
 
         # ── Elevation stats ────────────────────────────────────────────────
