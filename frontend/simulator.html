@@ -158,6 +158,21 @@
       <!-- CesiumJS Container (Hidden by default, toggled via engine switcher) -->
       <div id="cesium-container" style="display:none;" class="w-full h-full absolute inset-0 z-0"></div>
 
+      <!-- Ground Walk FPS Crosshair & Pointer Lock Hint -->
+      <div id="walk-overlay" class="hidden pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center">
+        <!-- Center Reticle -->
+        <div class="relative w-8 h-8 flex items-center justify-center pointer-events-none">
+          <div class="w-2 h-2 rounded-full bg-secondary ring-2 ring-background/70 shadow-[0_0_10px_rgba(0,240,255,0.9)]"></div>
+          <div class="absolute w-5 h-[1.5px] bg-secondary/80"></div>
+          <div class="absolute h-5 w-[1.5px] bg-secondary/80"></div>
+        </div>
+        <!-- Pointer Lock Helper Badge -->
+        <div id="walk-lock-hint" class="absolute bottom-24 bg-surface-container-lowest/90 backdrop-blur-md px-3.5 py-1.5 rounded-lg text-primary font-mono-data-sm text-[11px] border border-primary-container/30 shadow-xl flex items-center gap-2 pointer-events-none">
+          <span class="material-symbols-outlined text-[16px] text-secondary">ads_click</span>
+          <span>Click viewport to lock mouse look • Press <kbd class="px-1.5 py-0.5 bg-surface-container rounded text-secondary font-bold border border-surface-container-high">ESC</kbd> to unlock</span>
+        </div>
+      </div>
+
       <!-- ===================================================================== -->
       <!-- TOP-CENTER: Flight Telemetry Compass Tape & Attitude Indicators       -->
       <!-- ===================================================================== -->
@@ -254,6 +269,14 @@
               <span class="font-medium text-body-sm">Drone FPV (WASD)</span>
             </div>
             <span class="font-label-caps text-[9px] text-primary-container bg-surface-container-lowest px-1.5 py-0.5 rounded">FLY</span>
+          </button>
+
+          <button id="btn-cam-walk" class="flex items-center justify-between px-3 py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors text-left group">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-[18px] text-secondary">directions_walk</span>
+              <span class="font-medium text-body-sm">Ground Walk (FPS)</span>
+            </div>
+            <span class="font-label-caps text-[9px] text-secondary bg-surface-container-lowest px-1.5 py-0.5 rounded border border-secondary/30">WALK</span>
           </button>
 
           <button id="btn-cam-orbit" class="flex items-center justify-between px-3 py-1.5 rounded-lg bg-surface-container-high text-primary font-body-sm text-body-sm transition-colors text-left group">
@@ -391,7 +414,7 @@
       <div class="absolute bottom-4 left-6 right-6 z-30 pointer-events-auto flex flex-wrap items-center justify-between gap-3 bg-surface-container-lowest/90 backdrop-blur-xl px-5 py-3 rounded-xl shadow-2xl border border-surface-container-high/60">
         
         <!-- Flight Simulator Cockpit Key Binds -->
-        <div class="flex flex-wrap items-center gap-4 text-on-surface font-mono-data-sm text-[11px]">
+        <div id="flight-controls-legend" class="flex flex-wrap items-center gap-4 text-on-surface font-mono-data-sm text-[11px]">
           <div class="flex items-center gap-1.5 mr-1">
             <span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
             <span class="font-label-caps text-[10px] text-secondary font-bold tracking-wider uppercase">FLIGHT CONTROLS</span>
@@ -411,6 +434,34 @@
           <div class="flex items-center gap-1.5">
             <kbd class="px-2 py-0.5 bg-surface-container rounded text-secondary font-bold text-[10px] border border-surface-container-high">Drag</kbd>
             <span class="text-on-surface-variant">Orbit Scene</span>
+          </div>
+        </div>
+
+        <!-- Walk Simulator Key Binds (Hidden by default, shown in Walk mode) -->
+        <div id="walk-controls-legend" class="hidden flex-wrap items-center gap-4 text-on-surface font-mono-data-sm text-[11px]">
+          <div class="flex items-center gap-1.5 mr-1">
+            <span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+            <span class="font-label-caps text-[10px] text-secondary font-bold tracking-wider uppercase">GROUND WALK (FPS)</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <kbd class="px-2 py-0.5 bg-surface-container rounded text-primary font-bold text-[10px] border border-surface-container-high">W / S</kbd>
+            <span class="text-on-surface-variant">Walk Forward / Back</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <kbd class="px-2 py-0.5 bg-surface-container rounded text-primary font-bold text-[10px] border border-surface-container-high">A / D</kbd>
+            <span class="text-on-surface-variant">Strafe Left / Right</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <kbd class="px-2 py-0.5 bg-surface-container rounded text-secondary font-bold text-[10px] border border-surface-container-high">Shift</kbd>
+            <span class="text-on-surface-variant">Sprint (2× Speed)</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <kbd class="px-2 py-0.5 bg-surface-container rounded text-primary font-bold text-[10px] border border-surface-container-high">Mouse</kbd>
+            <span class="text-on-surface-variant">Look (FPS)</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <kbd class="px-2 py-0.5 bg-surface-container rounded text-outline font-bold text-[10px] border border-surface-container-high">ESC</kbd>
+            <span class="text-on-surface-variant">Unlock Mouse</span>
           </div>
         </div>
 

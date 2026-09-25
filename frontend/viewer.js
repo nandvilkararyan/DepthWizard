@@ -43,6 +43,20 @@ let flyPathRadius = 6.0;
 let flyPathHeight = 4.0;
 let flySpeed = 0.1; // radians per second
 
+// Walk mode (FPS Ground Walk) state
+let isWalkMode = false;
+let walkYaw = 0;           // horizontal camera rotation (radians)
+let walkPitch = 0;         // vertical camera rotation (radians)
+let walkEyeHeight = 0.035; // eye height in Three.js world units (~1.7m human height)
+let walkSpeedBase = 0.022; // units per frame (standard walking speed)
+let _lastValidGroundY = null;
+let walkBobTimer = 0;
+const _walkRaycaster = new THREE.Raycaster();
+const _walkRayOrigin = new THREE.Vector3();
+const _downVec = new THREE.Vector3(0, -1, 0);
+const _walkFwd = new THREE.Vector3();
+const _walkRight = new THREE.Vector3();
+
 // Terrain parameters (updated from metadata)
 let elevationScale = 1.0;
 let sunAngle = 45;
@@ -169,6 +183,38 @@ export function initViewer(canvasEl) {
   canvasEl.addEventListener("touchstart", _onUserInteract, { passive: true });
   canvasEl.addEventListener("click", _inspectTerrain);
 
+  // FPS Ground Walk mouse look with Pointer Lock
+  function _onMouseMove(e) {
+    if (!isWalkMode || !camera) return;
+    if (document.pointerLockElement !== canvasEl) return;
+
+    const movementX = e.movementX || e.mozMovementX || e.webkitMovementX || 0;
+    const movementY = e.movementY || e.mozMovementY || e.webkitMovementY || 0;
+
+    walkYaw -= movementX * 0.0022;
+    walkPitch -= movementY * 0.0022;
+
+    const maxPitch = Math.PI / 2.2; // ~81 degrees
+    walkPitch = Math.max(-maxPitch, Math.min(maxPitch, walkPitch));
+
+    camera.quaternion.setFromEuler(new THREE.Euler(walkPitch, walkYaw, 0, 'YXZ'));
+  }
+  document.addEventListener("mousemove", _onMouseMove);
+
+  // Re-request pointer lock when clicking viewport in walk mode
+  canvasEl.addEventListener("click", () => {
+    if (isWalkMode && document.pointerLockElement !== canvasEl) {
+      try {
+        canvasEl.requestPointerLock();
+      } catch (err) {}
+    }
+  });
+
+  document.addEventListener("pointerlockchange", () => {
+    const isLocked = document.pointerLockElement === canvasEl;
+    document.dispatchEvent(new CustomEvent("dw:pointerLockChange", { detail: { locked: isLocked } }));
+  });
+
   inspectionCard = document.getElementById("terrain-inspection-card");
   if (!inspectionCard) {
     inspectionCard = document.createElement("div");
@@ -251,6 +297,7 @@ export async function loadTerrain(heightmapUrl, textureUrl, metadata) {
   terrainMesh.castShadow = false;
   scene.add(terrainMesh);
   _frameTerrain(geo);
+  _updateWalkScale(metadata);
 
   // Set camera to orbit mode by default for immediate responsive control
   flyClock = new THREE.Clock();
@@ -311,6 +358,7 @@ export async function loadTerrainHeightOnly(heightmapUrl, metadata) {
   terrainMesh.receiveShadow = true;
   scene.add(terrainMesh);
   _frameTerrain(geo);
+  _updateWalkScale(metadata);
 
   flyClock = new THREE.Clock();
   isFlying = true;
@@ -519,6 +567,7 @@ export function setKeyUp(key) {
 }
 
 export function toggleFlythrough() {
+  if (!isFlying && isWalkMode) setCameraWalk(false);
   isFlying = !isFlying;
   controls.enabled = !isFlying;
   if (isFlying) flyClock = new THREE.Clock();
@@ -526,12 +575,164 @@ export function toggleFlythrough() {
 }
 
 export function setFlythrough(active) {
+  if (active && isWalkMode) setCameraWalk(false);
   isFlying = active;
   controls.enabled = !active;
   if (active) flyClock = new THREE.Clock();
 }
 
+/**
+ * Fast O(1) bilinear interpolation of terrain height at world coordinates (x, z).
+ * Direct array lookup against displaced PlaneGeometry vertex positions — zero GC, 60fps stable.
+ */
+export function getTerrainElevationAt(x, z) {
+  if (!terrainMesh || !terrainMesh.geometry) return null;
+  const positions = terrainMesh.geometry.attributes.position;
+  if (!positions) return null;
+
+  const w = _lastTerrainWidth || 8.0;
+  const d = _lastTerrainDepth || 8.0;
+  const halfW = w / 2;
+  const halfD = d / 2;
+
+  const clampedX = Math.max(-halfW, Math.min(halfW, x));
+  const clampedZ = Math.max(-halfD, Math.min(halfD, z));
+
+  const u = (clampedX + halfW) / w;
+  const v = (clampedZ + halfD) / d;
+
+  const segX = 256;
+  const segY = 256;
+  const gx = THREE.MathUtils.clamp(u * segX, 0, segX);
+  const gy = THREE.MathUtils.clamp(v * segY, 0, segY);
+
+  const x0 = Math.floor(gx);
+  const x1 = Math.min(segX, x0 + 1);
+  const y0 = Math.floor(gy);
+  const y1 = Math.min(segY, y0 + 1);
+
+  const fx = gx - x0;
+  const fy = gy - y0;
+
+  const stride = segX + 1;
+  const idx00 = y0 * stride + x0;
+  const idx10 = y0 * stride + x1;
+  const idx01 = y1 * stride + x0;
+  const idx11 = y1 * stride + x1;
+
+  if (idx11 >= positions.count) return null;
+
+  const h00 = positions.getY(idx00);
+  const h10 = positions.getY(idx10);
+  const h01 = positions.getY(idx01);
+  const h11 = positions.getY(idx11);
+
+  return (h00 * (1 - fx) + h10 * fx) * (1 - fy) + (h01 * (1 - fx) + h11 * fx) * fy;
+}
+
+function _sampleGroundHeightRay(x, z) {
+  if (!terrainMesh) return null;
+  _walkRayOrigin.set(x, 50, z);
+  _walkRaycaster.set(_walkRayOrigin, _downVec);
+  const hits = _walkRaycaster.intersectObject(terrainMesh, false);
+  if (hits.length > 0) {
+    return hits[0].point.y;
+  }
+  return null;
+}
+
+function _updateWalkScale(metadata) {
+  const meta = metadata || _lastMetadata;
+  const widthM = Number(
+    meta?.scene_geometry?.extent_width_m ||
+    ((meta?.calibration?.gsd_m || 0) * (meta?.scene_geometry?.width_pixels || 0)) ||
+    0
+  );
+  const terrainW = _lastTerrainWidth || 8.0;
+
+  if (widthM > 0) {
+    const unitsPerMeter = terrainW / widthM;
+    walkEyeHeight = Math.max(0.025, Math.min(0.12, 1.7 * unitsPerMeter));
+    walkSpeedBase = Math.max(0.015, Math.min(0.06, 1.4 * unitsPerMeter));
+  } else {
+    // Relative rDSM default: 8 units ≈ 500m -> 1.7m human eye height ≈ 0.035 units
+    walkEyeHeight = 0.035;
+    walkSpeedBase = 0.022;
+  }
+}
+
+function _spawnWalkPlayer() {
+  const w = _lastTerrainWidth || 8.0;
+  const d = _lastTerrainDepth || 8.0;
+  const margin = 0.4;
+  const halfW = (w / 2) - margin;
+  const halfD = (d / 2) - margin;
+
+  let spawnX = camera.position.x;
+  let spawnZ = camera.position.z;
+
+  if (Math.abs(spawnX) > halfW || Math.abs(spawnZ) > halfD || !isFinite(spawnX) || !isFinite(spawnZ)) {
+    spawnX = 0;
+    spawnZ = 0;
+  }
+
+  const elev = getTerrainElevationAt(spawnX, spawnZ) ?? _sampleGroundHeightRay(spawnX, spawnZ) ?? 0;
+  _lastValidGroundY = elev;
+
+  camera.position.set(spawnX, elev + walkEyeHeight, spawnZ);
+  walkPitch = 0;
+  walkYaw = 0;
+  camera.quaternion.setFromEuler(new THREE.Euler(walkPitch, walkYaw, 0, 'YXZ'));
+}
+
+export function setCameraWalk(active) {
+  isWalkMode = active;
+  if (active) {
+    isFlying = false;
+    if (controls) controls.enabled = false;
+    _updateWalkScale();
+    _spawnWalkPlayer();
+    if (renderer && renderer.domElement) {
+      try {
+        renderer.domElement.requestPointerLock();
+      } catch (e) {}
+    }
+  } else {
+    if (document.pointerLockElement === renderer?.domElement) {
+      try {
+        document.exitPointerLock();
+      } catch (e) {}
+    }
+    if (controls) controls.enabled = true;
+  }
+}
+
+export function getIsWalkMode() {
+  return isWalkMode;
+}
+
+export function getWalkTelemetry() {
+  if (!isWalkMode) return null;
+  const deg = Math.round(((THREE.MathUtils.radToDeg(-walkYaw) % 360) + 360) % 360);
+  const compassDirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const dir = compassDirs[Math.floor((deg + 22.5) / 45) % 8];
+  const pitchDeg = Math.round(THREE.MathUtils.radToDeg(walkPitch));
+
+  const isMoving = _keysDown['w'] || _keysDown['s'] || _keysDown['a'] || _keysDown['d'];
+  const isSprint = _keysDown['shift'];
+  const speedMs = isMoving ? (isSprint ? 3.5 : 1.4) : 0.0;
+
+  return {
+    headingDeg: String(deg).padStart(3, '0'),
+    headingDir: dir,
+    eyeHeightM: (1.7).toFixed(1),
+    speedMs: speedMs.toFixed(1),
+    pitchDeg: pitchDeg >= 0 ? `+${pitchDeg}` : `${pitchDeg}`,
+  };
+}
+
 export function resetCamera() {
+  if (isWalkMode) setCameraWalk(false);
   isFlying = false;
   if (controls) {
     controls.enabled = true;
@@ -545,6 +746,7 @@ export function resetCamera() {
 }
 
 export function setCameraNadir() {
+  if (isWalkMode) setCameraWalk(false);
   isFlying = false;
   if (controls) {
     controls.enabled = true;
@@ -619,6 +821,12 @@ export function setElevationScale(val) {
       _flood.vertexCount = positions.count;
       // Re-apply current water level with the corrected scale
       setFloodLevel(_flood.currentLevel);
+    }
+
+    _updateWalkScale(_lastMetadata);
+    if (isWalkMode && camera) {
+      const elev = getTerrainElevationAt(camera.position.x, camera.position.z);
+      if (elev !== null) camera.position.y = elev + walkEyeHeight;
     }
   }
 }
@@ -939,8 +1147,67 @@ function _startRenderLoop() {
     if (elapsed < TARGET_MS - 1) return;   // -1ms tolerance for timer jitter
     _lastFrameTime = now - (elapsed % TARGET_MS);
 
-    const hasFlightKeys = _keysDown['w'] || _keysDown['s'] || _keysDown['a'] || _keysDown['d'] || _keysDown['q'] || _keysDown['e'];
-    if (hasFlightKeys && camera) {
+    const hasFlightKeys = !!(_keysDown['w'] || _keysDown['s'] || _keysDown['a'] || _keysDown['d'] || _keysDown['q'] || _keysDown['e']);
+
+    if (isWalkMode && camera) {
+      // ── Ground Walk (Pedestrian First-Person Mode) ───────────────────
+      _walkFwd.set(-Math.sin(walkYaw), 0, -Math.cos(walkYaw)).normalize();
+      _walkRight.set(Math.cos(walkYaw), 0, -Math.sin(walkYaw)).normalize();
+
+      const isSprint = !!_keysDown['shift'];
+      const speedMultiplier = (flySpeed || 0.1) / 0.1;
+      const currentSpeed = (walkSpeedBase || 0.022) * speedMultiplier * (isSprint ? 2.2 : 1.0);
+
+      let moveX = 0;
+      let moveZ = 0;
+      if (_keysDown['w']) {
+        moveX += _walkFwd.x;
+        moveZ += _walkFwd.z;
+      }
+      if (_keysDown['s']) {
+        moveX -= _walkFwd.x;
+        moveZ -= _walkFwd.z;
+      }
+      if (_keysDown['a']) {
+        moveX -= _walkRight.x;
+        moveZ -= _walkRight.z;
+      }
+      if (_keysDown['d']) {
+        moveX += _walkRight.x;
+        moveZ += _walkRight.z;
+      }
+
+      const moveLen = Math.hypot(moveX, moveZ);
+      if (moveLen > 0.0001) {
+        camera.position.x += (moveX / moveLen) * currentSpeed;
+        camera.position.z += (moveZ / moveLen) * currentSpeed;
+        walkBobTimer += (isSprint ? 0.22 : 0.14);
+      } else {
+        walkBobTimer = 0;
+      }
+
+      // Boundary clamp to terrain footprint
+      const margin = 0.15;
+      const halfW = (_lastTerrainWidth / 2) - margin;
+      const halfD = (_lastTerrainDepth / 2) - margin;
+      camera.position.x = Math.max(-halfW, Math.min(halfW, camera.position.x));
+      camera.position.z = Math.max(-halfD, Math.min(halfD, camera.position.z));
+
+      // Terrain following (Gravity & Elevation)
+      const groundElev = getTerrainElevationAt(camera.position.x, camera.position.z)
+        ?? _sampleGroundHeightRay(camera.position.x, camera.position.z);
+
+      if (groundElev !== null) {
+        _lastValidGroundY = groundElev;
+      }
+
+      if (_lastValidGroundY !== null) {
+        const bob = Math.sin(walkBobTimer) * (walkEyeHeight * 0.06);
+        const targetY = _lastValidGroundY + walkEyeHeight + bob;
+        // Smooth lerp to ground level
+        camera.position.y += (targetY - camera.position.y) * 0.4;
+      }
+    } else if (hasFlightKeys && camera) {
       const speed = Math.max(0.04, (flySpeed || 0.1) * 1.5);
       camera.getWorldDirection(_fwdVec);
       _rightVec.crossVectors(_fwdVec, camera.up).normalize();
@@ -1158,6 +1425,7 @@ function _prepareHeightSampler(image) {
 }
 
 function _inspectTerrain(event) {
+  if (isWalkMode) return;
   if (!terrainMesh || !terrainHeightData || !renderer || !inspectionCard)
     return;
   const rect = renderer.domElement.getBoundingClientRect();
@@ -1306,6 +1574,7 @@ function _onResize() {
 }
 
 function _onUserInteract() {
+  if (isWalkMode) return;
   if (isFlying) {
     isFlying = false;
     controls.enabled = true;

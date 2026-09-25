@@ -23,6 +23,10 @@ import {
   setFlythrough,
   resetCamera,
   setCameraNadir,
+  setCameraWalk,
+  getIsWalkMode,
+  getWalkTelemetry,
+  getTerrainElevationAt,
   setTerrainTexture,
   setKeyDown,
   setKeyUp,
@@ -81,9 +85,14 @@ import {
 
   // Camera Rig
   const btnCamFpv = document.getElementById('btn-cam-fpv');
+  const btnCamWalk = document.getElementById('btn-cam-walk');
   const btnCamOrbit = document.getElementById('btn-cam-orbit');
   const btnCamNadir = document.getElementById('btn-cam-nadir');
   const btnCamReset = document.getElementById('btn-cam-reset');
+  const walkOverlay = document.getElementById('walk-overlay');
+  const walkLockHint = document.getElementById('walk-lock-hint');
+  const flightControlsLegend = document.getElementById('flight-controls-legend');
+  const walkControlsLegend = document.getElementById('walk-controls-legend');
 
   // Sliders & Controls
   const elevSlider = document.getElementById('elev-slider');
@@ -164,7 +173,9 @@ import {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && (!taskId || parsed.task_id === taskId)) {
-          taskData = parsed;
+          if (parsed.download_urls && (parsed.download_urls.heightmap_8bit_preview_png || parsed.download_urls.optical_texture_png)) {
+            taskData = parsed;
+          }
         }
       }
     } catch (_) {}
@@ -256,13 +267,27 @@ import {
     const opticalUrl = urls.optical_texture_png || urls.heightmap_8bit_preview_png;
     const heightmapUrl = urls.heightmap_8bit_preview_png || urls.optical_texture_png;
 
+    let terrainLoaded = false;
     if (opticalUrl && heightmapUrl) {
       try {
         await loadTerrain(heightmapUrl, opticalUrl, meta);
         initFloodSimulator(heightmapUrl, meta);   // correct order: (url, metadata)
+        terrainLoaded = true;
       } catch (err) {
         console.error('[Simulator] Failed to load terrain:', err);
       }
+    }
+
+    // If current task files failed to load (e.g. stale sessionStorage), fallback to demo task
+    if (!terrainLoaded && data.task_id !== "dsm_3b7d939682") {
+      console.warn('[Simulator] Current task assets failed to load. Falling back to default demo scene...');
+      try {
+        sessionStorage.removeItem('depthwizard_current_task');
+      } catch (_) {}
+      const fallback = getFallbackDemoTask();
+      activeTask = fallback;
+      await loadTaskScene(fallback);
+      return;
     }
 
     // Load Mesh Overlay if available (turned off by default, opacity 10%)
@@ -323,8 +348,16 @@ import {
         if (hudFps) hudFps.textContent = `${currentFps} FPS`;
       }
 
-      // Update synthetic flight instrumentation
-      if (isFlying || activeCameraMode === 'fpv') {
+      // Update synthetic flight or ground walk instrumentation
+      if (activeCameraMode === 'walk') {
+        const telemetry = getWalkTelemetry();
+        if (telemetry) {
+          if (hudHeading) hudHeading.textContent = `${telemetry.headingDeg}° ${telemetry.headingDir}`;
+          if (hudAltitude) hudAltitude.textContent = `${telemetry.eyeHeightM} m AGL`;
+          if (hudAirspeed) hudAirspeed.textContent = `${telemetry.speedMs} m/s`;
+          if (hudAttitude) hudAttitude.textContent = `${telemetry.pitchDeg}° / 0°`;
+        }
+      } else if (isFlying || activeCameraMode === 'fpv') {
         const timeSec = now * 0.001;
         const hdg = Math.floor((timeSec * 15) % 360);
         const compassDirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -387,7 +420,11 @@ import {
     if (btnCamFpv) {
       btnCamFpv.addEventListener('click', () => {
         setCameraRig('fpv');
-        toggleFlythrough();
+      });
+    }
+    if (btnCamWalk) {
+      btnCamWalk.addEventListener('click', () => {
+        setCameraRig('walk');
       });
     }
     if (btnCamOrbit) {
@@ -403,6 +440,7 @@ import {
     if (btnCamReset) {
       btnCamReset.addEventListener('click', () => {
         resetCamera();
+        setCameraRig('orbit');
       });
     }
 
@@ -496,6 +534,14 @@ import {
       setCameraRig('orbit');
     });
 
+    document.addEventListener('dw:pointerLockChange', (e) => {
+      if (activeCameraMode === 'walk') {
+        if (walkLockHint) {
+          walkLockHint.style.display = e.detail?.locked ? 'none' : 'flex';
+        }
+      }
+    });
+
     // Keyboard Flight Binds
     window.addEventListener('keydown', (e) => {
       keysDown[e.key.toLowerCase()] = true;
@@ -571,23 +617,39 @@ import {
 
   function setCameraRig(rig) {
     activeCameraMode = rig;
-    [btnCamFpv, btnCamOrbit, btnCamNadir].forEach((btn) => {
+    [btnCamFpv, btnCamWalk, btnCamOrbit, btnCamNadir].forEach((btn) => {
       if (btn) btn.classList.remove('bg-surface-container-high', 'text-primary');
     });
 
-    if (rig === 'fpv') {
-      if (btnCamFpv) btnCamFpv.classList.add('bg-surface-container-high', 'text-primary');
-      isFlying = true;
-      setFlythrough(true);
-    } else if (rig === 'orbit') {
-      if (btnCamOrbit) btnCamOrbit.classList.add('bg-surface-container-high', 'text-primary');
+    if (rig === 'walk') {
+      if (btnCamWalk) btnCamWalk.classList.add('bg-surface-container-high', 'text-primary');
       isFlying = false;
       setFlythrough(false);
-    } else if (rig === 'nadir') {
-      if (btnCamNadir) btnCamNadir.classList.add('bg-surface-container-high', 'text-primary');
-      isFlying = false;
-      setFlythrough(false);
-      setCameraNadir();
+      setCameraWalk(true);
+      if (walkOverlay) walkOverlay.classList.remove('hidden');
+      if (walkLockHint) walkLockHint.style.display = 'flex';
+      if (flightControlsLegend) flightControlsLegend.classList.add('hidden');
+      if (walkControlsLegend) walkControlsLegend.classList.remove('hidden');
+    } else {
+      setCameraWalk(false);
+      if (walkOverlay) walkOverlay.classList.add('hidden');
+      if (flightControlsLegend) flightControlsLegend.classList.remove('hidden');
+      if (walkControlsLegend) walkControlsLegend.classList.add('hidden');
+
+      if (rig === 'fpv') {
+        if (btnCamFpv) btnCamFpv.classList.add('bg-surface-container-high', 'text-primary');
+        isFlying = true;
+        setFlythrough(true);
+      } else if (rig === 'orbit') {
+        if (btnCamOrbit) btnCamOrbit.classList.add('bg-surface-container-high', 'text-primary');
+        isFlying = false;
+        setFlythrough(false);
+      } else if (rig === 'nadir') {
+        if (btnCamNadir) btnCamNadir.classList.add('bg-surface-container-high', 'text-primary');
+        isFlying = false;
+        setFlythrough(false);
+        setCameraNadir();
+      }
     }
   }
 
