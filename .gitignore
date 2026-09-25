@@ -29,6 +29,8 @@ output/uploads/
 output/*.tif
 output/*.png
 output/*.json
+output/*.glb
+output/*.ply
 output/test_scratch/
 
 # Keep the output directory itself

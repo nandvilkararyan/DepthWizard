@@ -12,6 +12,7 @@ elevation>=1.1.3
 pillow>=9.5.0
 pydantic>=2.0.0
 python-multipart>=0.0.6
+requests>=2.28.0
 # Module D — Point cloud & surface mesh
 trimesh>=4.0.0          # required for GLB export (Three.js overlay)
 # open3d>=0.18.0        # optional: high-quality Poisson backend (Python ≤ 3.12 only)

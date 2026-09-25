@@ -453,9 +453,12 @@ class ScaleCalibrator:
     def _fetch_regional_srtm(
         self, latitude: float, longitude: float, bounds: Optional[Tuple[float, float, float, float]] = None
     ) -> Tuple[Optional[np.ndarray], Optional[GeoMetadata]]:
-        """Fetch global 30m DEM elevation data using chunked Open-Meteo API with srtm.py & Open-Elevation fallbacks."""
         import math
-        import requests
+        try:
+            import requests
+        except ImportError:
+            print("[SRTM WARNING] 'requests' package not installed. Skipping online regional DEM lookup.")
+            return None, None
 
         if bounds is not None and len(bounds) == 4:
             min_lon, min_lat, max_lon, max_lat = bounds

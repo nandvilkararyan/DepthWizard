@@ -51,6 +51,17 @@ class ModelManager:
         cfg = resolve_model(model_key_or_id or DEFAULT_MODEL_KEY)
         req_key = cfg["key"]
 
+        # If local model requested but weights file is missing, fallback to Base HF model
+        if cfg.get("is_local"):
+            weights_file = Path(cfg["id"]) / "model.safetensors"
+            if not weights_file.exists():
+                print(
+                    f"[ModelManager WARNING] Local fine-tuned weights '{weights_file}' not found. "
+                    "Falling back to Depth Anything V2 Base from HuggingFace Hub."
+                )
+                cfg = SUPPORTED_MODELS["depth_anything_v2_base"]
+                req_key = cfg["key"]
+
         # Check if requested model is already active
         if self.extractor is not None and self.current_key == req_key:
             return self.extractor, cfg
