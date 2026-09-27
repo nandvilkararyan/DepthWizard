@@ -61,14 +61,3 @@ htmlcov/
 # Node (if any tooling is added)
 node_modules/
 package-lock.json
-
-# Unity generated files
-unity/Library/
-unity/Temp/
-unity/Logs/
-unity/obj/
-unity/Build/
-unity/UserSettings/
-unity/*.csproj
-unity/*.sln
-unity/.vs/

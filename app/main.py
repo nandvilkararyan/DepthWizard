@@ -147,11 +147,6 @@ app.mount("/files", StaticFiles(directory=str(OUTPUT_DIR)), name="files")
 if FRONTEND_DIR.exists():
     app.mount("/app", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 
-# Mount Unity WebGL build (served at /unity-build/*) — optional, present only after a Unity WebGL build
-UNITY_BUILD_DIR = Path(__file__).parent.parent / "unity-build"
-if UNITY_BUILD_DIR.exists():
-    app.mount("/unity-build", StaticFiles(directory=str(UNITY_BUILD_DIR), html=True), name="unity_build")
-
 
 @app.get("/", include_in_schema=False)
 async def root_redirect():

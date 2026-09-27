@@ -8,11 +8,11 @@
 <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge"/>
 
 # 🌍 DepthWizard
-### AI-Powered 2D Satellite Image → Interactive 3D Terrain
+### AI-Powered Monocular Satellite Imagery → Calibrated 3D Terrain & Digital Surface Models
 
-**DepthWizard** converts any single-view satellite or aerial photograph into a fully navigable 3D terrain model with metric elevation data — directly in your browser. No LiDAR, no stereo pairs, no GCP surveys required.
+**DepthWizard** transforms single-view satellite and aerial photographs into fully calibrated Digital Surface Models (DSMs), 3D point clouds, watertight surface meshes, and interactive 3D simulations directly inside your browser. No LiDAR, stereo pairs, or manual Ground Control Point (GCP) surveys required.
 
-[Live Demo](#running-locally) · [API Docs](http://localhost:8000/docs) · [Architecture](#system-architecture) · [Tech Stack](#tech-stack)
+[Quick Start](#-quick-start) · [System Architecture](#-system-architecture) · [Features & UI](#-features--interactive-interfaces) · [API Reference](#-api-reference) · [Algorithms](#-algorithm-deep-dive) · [Tech Stack](#-tech-stack)
 
 </div>
 
@@ -20,129 +20,113 @@
 
 ## 🎯 Problem Statement
 
-High-resolution 3D terrain models are critical for disaster management, urban planning, environmental monitoring, and defence applications. However, generating accurate Digital Surface Models (DSMs) traditionally requires:
+High-resolution 3D terrain and Digital Surface Models (DSMs) are critical for disaster management, urban planning, defense, and environmental monitoring. Traditionally, generating accurate elevation models requires:
 
-- Expensive stereo satellite constellations or LiDAR sensors
-- Ground control point (GCP) surveys for metric calibration
-- Proprietary photogrammetry software (e.g. Pix4D, Agisoft Metashape)
-- Days of processing time
+- Expensive stereo satellite constellations or airborne LiDAR missions
+- Tedious physical GCP surveys for metric datum alignment
+- Heavy proprietary photogrammetry suites (e.g., Pix4D, Agisoft Metashape)
+- Hours to days of multi-view matching computation
 
-**DepthWizard solves this** by applying state-of-the-art monocular depth estimation (Depth Anything V2) to derive metric elevation from a single optical image, calibrating it against freely available reference DEMs, and delivering an interactive 3D flythrough in seconds.
+**DepthWizard** breaks this bottleneck by pairing state-of-the-art monocular foundation models (**Depth Anything V2**) with automated open DEM datum calibration (Copernicus 30m / SRTM via Open-Meteo & Open-Elevation). A single optical image yields metric elevation rasters, 3D point clouds, surface meshes, and a real-time 3D simulation environment in seconds.
 
 ---
 
-## ✨ Key Features
+## ✨ Key Capabilities
 
-| Feature | Description |
+| Capability | Technical Implementation |
 |---|---|
-| 🤖 **AI Depth Estimation** | Depth Anything V2 (ViT-Base) extracts relative depth from a single image |
-| 📐 **Metric Calibration** | OLS regression against SRTM/ASTER reference DEMs for real-world elevation values |
-| 🗺️ **GeoTIFF Support** | Reads CRS, affine transforms, and bounding boxes from georeferenced rasters |
-| 🧩 **Tiled Inference** | Sliding-window processing with 2D Hann-window blending eliminates seam artifacts |
-| 🌐 **Browser 3D Viewer** | Three.js terrain with satellite texture draping, flythrough camera, orbit controls |
-| ⬇️ **Multi-Format Export** | 16-bit Unity heightmap PNG, 32-bit float GeoTIFF, calibration metadata JSON |
-| 🎮 **Unity Integration** | Complete C# scripts for Unity URP terrain visualisation and GIS fly camera |
+| 🤖 **Multi-Model Inference Engine** | Depth Anything V2 (Small / Base / Large) + local fine-tuned `model.safetensors` with water-depth suppression |
+| 🧩 **Tiled Sliding-Window Inference** | 512×512 sliding windows with 2D Hann (raised cosine) blending to eliminate seam artifacts on arbitrary raster sizes |
+| 📐 **Metric Datum Calibration** | Automatic regional 30m DEM fetching (Copernicus/SRTM) with OLS & Huber robust regression; adaptive rDSM fallback |
+| 🌐 **Dedicated 3D Simulator** | Real-time Three.js WebGL terrain with satellite texture draping, GLB Poisson mesh overlay, and dynamic solar lighting |
+| 🎥 **4 Adaptive Camera Rigs** | **Orbit Target** (interactive inspection), **Drone FPV** (6-DOF flight), **Nadir Orthographic** (survey view), and **Ground Walk FPS** (first-person pedestrian walkthrough with pointer lock and terrain collision) |
+| 🌊 **Hydrological Simulation** | Connected border inundation analysis with real-time flood area ($km^2$) and water volume ($m^3$) computation |
+| 📦 **Production GIS & 3D Export** | 16-bit uint16 heightmaps (PNG), 32-bit float GeoTIFFs (with embedded CRS & affine transform), GLB surface meshes, PLY point clouds, and metadata JSON |
 
 ---
 
 ## 🏗️ System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        DEPTHWIZARD PIPELINE                        │
-└─────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                        DEPTHWIZARD PIPELINE                           │
+└────────────────────────────────────────────────────────────────────────┘
 
-  INPUT: Optical satellite image (PNG / JPG / GeoTIFF)
-         └── Optional: Low-resolution reference DEM (SRTM 30m GeoTIFF)
+  INPUT: Optical satellite / aerial raster (GeoTIFF, PNG, JPG)
+         └── Optional: Reference DEM GeoTIFF (or automated regional 30m DEM lookup)
 
-  ┌──────────────────────────────────────────────────────────────────┐
-  │  MODULE A — Single-View Depth Extraction                        │
-  │                                                                  │
-  │  ┌──────────────┐    Tiled Sliding Window (512×512, 20% overlap)│
-  │  │ RGB Image    │──► Depth Anything V2 ViT-Base inference       │
-  │  └──────────────┘    2D Hann-window blending → seam-free depth  │
-  │                      Output: relative depth map D ∈ ℝ^(H×W)    │
-  └──────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-  ┌──────────────────────────────────────────────────────────────────┐
-  │  MODULE B — Scale & Shift Calibration                           │
-  │                                                                  │
-  │  Georeferenced mode (with reference DEM):                        │
-  │    H_metric = α · D_relative + β                                │
-  │    Solved by OLS: [α, β] = argmin Σ(H_ref - H_pred)²           │
-  │    Validation: RMSE and MAE computed in meters                  │
-  │                                                                  │
-  │  Non-georeferenced fallback:                                     │
-  │    H_metric = normalize(D) → [min_alt, max_alt] meters          │
-  └──────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-  ┌──────────────────────────────────────────────────────────────────┐
-  │  MODULE C — Output Formatting                                   │
-  │                                                                  │
-  │  ├── Unity 16-bit Heightmap PNG  (uint16, 0–65535)              │
-  │  ├── Browser 8-bit Preview PNG   (uint8, for Three.js)          │
-  │  ├── Turbo Colorized Depth PNG   (false-color 2D preview)       │
-  │  ├── 32-bit Float GeoTIFF        (CRS + affine transform)       │
-  │  └── Calibration Metadata JSON   (elevation metrics, RMSE, MAE) │
-  └──────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-  ┌──────────────────────────────────────────────────────────────────┐
-  │  MODULE D — FastAPI REST Service + Browser Frontend             │
-  │                                                                  │
-  │  POST /process  → Full pipeline, returns JSON + download URLs  │
-  │  GET  /files/*  → Static file server for generated assets       │
-  │  GET  /app/*    → Serves browser frontend (Three.js viewer)     │
-  │                                                                  │
-  │  Frontend:                                                       │
-  │  ├── Upload panel (drag-and-drop, advanced options)             │
-  │  ├── Processing spinner (step-by-step status)                   │
-  │  ├── Results panel (2D previews + metadata cards)               │
-  │  └── Three.js 3D Viewer                                         │
-  │       ├── PlaneGeometry displaced by heightmap                  │
-  │       ├── Optical texture draped on terrain                     │
-  │       ├── Auto flythrough camera (orbiting spline)              │
-  │       └── Manual OrbitControls on mouse grab                    │
-  └──────────────────────────────────────────────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ MODULE A — Single-View Depth Extraction                             │
+  │                                                                     │
+  │ ┌──────────────┐    Tiled Sliding Window (512×512, 20% overlap)    │
+  │ │ RGB Image    │──► Depth Anything V2 ViT inference                │
+  │ └──────────────┘    2D Hann-window cosine blending → seam-free depth│
+  │                     Intelligent water-body suppression              │
+  │                     Output: Relative depth map D ∈ ℝ^(H×W)          │
+  └─────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ MODULE B — Scale & Shift Metric Calibration                         │
+  │                                                                     │
+  │ Georeferenced Mode:                                                 │
+  │   - Automated regional 30m DEM fetching (Copernicus DEM via API)    │
+  │   - Coordinate-aware reprojection and bilinear resampling           │
+  │   - OLS & Huber Robust Linear Fit: H_metric = α · D_relative + β   │
+  │   - Validation metrics: RMSE, MAE, and Pearson correlation          │
+  │                                                                     │
+  │ Non-Georeferenced Mode:                                             │
+  │   - Adaptive outlier suppression & dynamic relative rDSM scaling    │
+  └─────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ MODULE C — Output Formatting & Geospatial Packaging                │
+  │                                                                     │
+  │ ├── 16-bit Heightmap PNG  (uint16, 0–65535, for 3D game engines)    │
+  │ ├── 8-bit Preview PNG     (uint8, optimized for Three.js WebGL)    │
+  │ ├── Turbo Colorized PNG   (scientific hypsometric preview)          │
+  │ ├── 32-bit Float GeoTIFF  (GeoTIFF with EPSG CRS & affine matrix)   │
+  │ └── Metadata JSON         (elevation stats, GSD, RMSE, MAE)         │
+  └─────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ MODULE D — 3D Reconstruction, Point Cloud & WebGL Simulation        │
+  │                                                                     │
+  │ ├── 3D Point Cloud (.PLY) (unprojected 3D coordinates + RGB colors) │
+  │ ├── Watertight Mesh (.GLB)(Poisson surface reconstruction / Delaunay│
+  │ └── Interactive Three.js WebGL Simulator:                           │
+  │     ├── Displaced PlaneGeometry with satellite texture draping      │
+  │     ├── Co-registered GLB Poisson mesh & cyan wireframe overlay     │
+  │     ├── 4 Camera Rigs (Orbit, Drone FPV, Nadir Ortho, Ground Walk)  │
+  │     ├── Real-time Solar Angle & dynamic shadows                     │
+  │     └── Hydrological flood simulation & depth profiling             │
+  └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🛠️ Tech Stack
+## 🖥️ Interactive Interfaces
 
-### Backend
-| Component | Technology | Version | Purpose |
-|---|---|---|---|
-| Web Framework | **FastAPI** | ≥ 0.100 | REST API, static file serving, CORS |
-| ASGI Server | **Uvicorn** | ≥ 0.20 | Production-grade async server |
-| Depth Model | **Depth Anything V2** | Base (ViT-B) | Monocular depth estimation |
-| ML Framework | **PyTorch** | ≥ 2.0 | Model inference, GPU acceleration |
-| Model Hub | **HuggingFace Transformers** | ≥ 4.40 | Model loading and image processor |
-| GIS Library | **Rasterio** | ≥ 1.3 | GeoTIFF I/O, CRS handling, affine transforms |
-| Image Processing | **OpenCV** | ≥ 4.8 | Image I/O, colormap, PNG encoding |
-| Linear Algebra | **NumPy + SciPy** | ≥ 1.24, ≥ 1.10 | OLS regression, array ops |
-| Data Validation | **Pydantic** | ≥ 2.0 | Request/response schemas |
+DepthWizard features two browser-based web applications served directly by the FastAPI backend:
 
-### Frontend
-| Component | Technology | Version | Purpose |
-|---|---|---|---|
-| 3D Rendering | **Three.js** | r165 | WebGL terrain mesh, lighting, camera |
-| Camera Controls | **OrbitControls** | Three.js addon | Mouse-driven terrain orbit |
-| Module System | **ES Modules + importmap** | Native browser | Zero-build CDN module resolution |
-| Styling | **Vanilla CSS** | — | Glassmorphism dark-mode UI |
-| Typography | **Google Fonts** (Inter, Outfit) | — | Premium sans-serif typography |
+### 1. DepthWizard Studio (`/app/index.html`)
+- **Dual Raster Comparison**: Side-by-side interactive split comparison between the original optical raster and the inferred depth / DSM.
+- **Model Engine Selector**: Toggle seamlessly between *Depth Anything V2 Small*, *Base*, *Large*, or *DepthWizard Fine-Tuned*.
+- **Datum Tie-In & Calibration Inspector**: Real-time readouts of min/max elevation, elevation range, scale factor ($\alpha$), shift ($\beta$), RMSE, MAE, and sample correlation.
+- **Single-Click Generation**: Computes depth maps, DSM GeoTIFFs, 16-bit heightmaps, 3D point clouds, and GLB surface meshes in a unified pipeline.
 
-### Unity Integration (Optional — WebGL builds run inside the browser)
-| Component | Technology | Purpose |
-|---|---|---|
-| Render Pipeline | **Unity URP** | Physically-based rendering |
-| Terrain Mesh | `TerrainMeshGenerator.cs` | Procedural mesh from 16-bit PNG |
-| GIS Camera | `FlyCameraController.cs` | WASD + RMB free-fly with terrain clearance |
-| Shader | `HeightDisplacement.hlsl` | Custom vertex displacement shader |
-| One-Click Setup | `SetupDepthWizardScene.cs` | Editor utility to scaffold full scene |
-| **WebGL Bridge** | `WebGLBridge.cs` + `DepthWizardBridge.jslib` | **postMessage bridge — lets the browser page send terrain data into a Unity WebGL iframe** |
+### 2. DepthWizard 3D Simulator (`/app/simulator.html`)
+- **4 Camera Rigs**:
+  - 🔄 **Orbit Target**: Standard orbit, pan, and zoom controls around the terrain center.
+  - 🚁 **Drone FPV**: 6-DOF flight camera using `W/A/S/D` for directional thrust and `Q/E` for altitude elevation.
+  - 📐 **Orthographic / Nadir**: 90° top-down survey view for planar measurements and aerial inspection.
+  - 🚶 **Ground Walk (FPS)**: First-person pedestrian walkthrough at realistic human eye height (~1.7 m) and walking speed (~1.4 m/s). Features pointer-lock mouse look, `W/A/S/D` movement, `Shift` sprint, head bobbing, and $O(1)$ bilinear terrain collision raycasting.
+- **Mesh Overlay & Wireframe Mode**: Co-registered Poisson surface mesh overlay with adjustable opacity and high-visibility wireframe modes.
+- **Dynamic Solar Simulation**: Time-of-day slider adjusting the virtual sun angle (azimuth and elevation) with dynamic shadow casting.
+- **Hydrological Inundation**: Interactive water-level slider modeling border-connected flooding with live area ($km^2$) and water volume ($m^3$) readouts.
+- **Live Telemetry HUD**: Displays real-time altitude, GSD, eye height, heading, pitch, and stable 60 FPS performance monitoring.
 
 ---
 
@@ -151,170 +135,116 @@ High-resolution 3D terrain models are critical for disaster management, urban pl
 ```
 depthwizard/
 │
-├── app/                            # FastAPI application
+├── app/                                # FastAPI application & pipeline backend
 │   ├── __init__.py
-│   ├── config.py                   # Global constants, device auto-detection
-│   ├── main.py                     # FastAPI routes, lifespan, static mounts
+│   ├── config.py                       # Model registry, directory paths, device detection
+│   ├── main.py                         # REST API endpoints, static file mounts, lifecycle
+│   │
+│   ├── depthwizard_model/              # Fine-tuned model directory
+│   │   ├── README.md                   # Instructions & GitHub Release asset link
+│   │   ├── config.json                 # Model architecture configuration
+│   │   └── preprocessor_config.json    # Image preprocessor parameters
+│   │   # model.safetensors             # Optional local fine-tuned weights (~390 MB)
+│   │
 │   ├── modules/
-│   │   ├── depth_extractor.py      # Module A: Depth Anything V2 + Hann blending
-│   │   ├── scale_calibrator.py     # Module B: OLS scale & shift calibration
-│   │   └── formatter.py            # Module C: PNG/GeoTIFF/JSON export
+│   │   ├── depth_extractor.py          # Module A: Depth Anything V2 inference & Hann blending
+│   │   ├── scale_calibrator.py         # Module B: 30m DEM fetching, OLS/Huber calibration, rDSM
+│   │   ├── formatter.py                # Module C: 16-bit PNG, float32 GeoTIFF, metadata JSON
+│   │   ├── point_cloud_generator.py    # Module D: PLY point cloud & GLB mesh reconstruction
+│   │   └── flood_simulator.py          # Border-connected hydrological flood simulation
+│   │
 │   └── utils/
-│       └── image_io.py             # Rasterio + OpenCV I/O helpers, GeoMetadata
+│       ├── __init__.py
+│       └── image_io.py                 # Rasterio geospatial I/O, GeoMetadata parsing
 │
-├── frontend/                       # Browser-based 3D viewer (served by FastAPI)
-│   ├── index.html                  # Single-page app (Unity iframe primary / Three.js fallback)
-│   ├── style.css                   # Dark glassmorphism UI
-│   └── viewer.js                   # Three.js terrain viewer ES module
+├── frontend/                           # Client-side WebGL application (Three.js)
+│   ├── index.html                      # DepthWizard Studio interface
+│   ├── studio.js                       # Studio UI controller & API orchestration
+│   ├── simulator.html                  # Standalone 3D Terrain Simulator
+│   ├── simulator.js                    # Simulator UI controller, camera rigs, telemetry HUD
+│   ├── viewer.js                       # Three.js 3D engine (terrain, mesh, walk mode, lighting)
+│   ├── cesium_viewer.js                # Optional CesiumJS geospatial viewer
+│   └── style.css                       # Styling & glassmorphism theme
 │
-├── unity/                          # Unity URP integration (compile to unity-build/ for WebGL)
-│   ├── Scripts/
-│   │   ├── AppManager.cs           # HTTP pipeline integration + LoadFromUrls() for WebGL
-│   │   ├── TerrainMeshGenerator.cs # 16-bit heightmap → Unity Mesh
-│   │   ├── FlyCameraController.cs  # GIS free-fly camera (WASD + RMB)
-│   │   ├── TerrainInspector.cs     # On-screen elevation stats overlay
-│   │   └── WebGLBridge.cs          # postMessage ↔ C# bridge for WebGL iframe
-│   ├── Plugins/
-│   │   └── WebGL/
-│   │       └── DepthWizardBridge.jslib  # JS side of the WebGL bridge
-│   ├── Editor/
-│   │   └── SetupDepthWizardScene.cs# One-click Unity scene scaffolding
-│   └── Shaders/
-│       └── HeightDisplacement.shader # URP vertex displacement HLSL
+├── output/                             # Generated pipeline assets (git-ignored)
+│   └── .gitkeep
 │
-├── unity-build/                    # ⬅ Unity WebGL output (NOT committed, built locally)
-│   └── index.html                  #   Auto-detected by FastAPI → served at /unity-build/*
-│
-├── output/                         # Generated assets (git-ignored)
-├── test_pipeline.py                # Full automated test suite
-├── cli_test.py                     # CLI tool for quick pipeline tests
-├── requirements.txt                # Python dependency specifications
-└── README.md
+├── test_pipeline.py                    # Comprehensive automated test suite
+├── cli_test.py                         # Command-line utility for offline batch processing
+├── test_mt_st_helens.py                # Quick sample image test script
+├── requirements.txt                    # Python package dependencies
+├── .gitignore                          # Git ignore rules for virtualenvs, caches & outputs
+├── LICENSE                             # MIT License
+└── README.md                           # Project documentation
 ```
 
 ---
 
-## 🎮 Unity WebGL Build (Optional — Activates Premium 3D Viewer)
-
-The browser frontend automatically detects whether a Unity WebGL build is present.
-- **Build present** → Unity renders the terrain inside an iframe (CPU-baked mesh, URP shading, full FPS camera)
-- **Build absent** → Three.js fallback activates automatically — no action needed
-
-### One-Time Build Steps
-
-> **Requirements:** Unity 2022 LTS or newer with the **WebGL Build Support** module installed.
-
-```
-1. Open Unity Hub → Add → select depthwizard/unity/ as the project folder
-2. Wait for Unity to import assets and compile shaders
-
-3. Menu → DepthWizard → Setup 3D Elevation Scene
-   (This scaffolds the scene hierarchy, wires up AppManager, attaches WebGLBridge)
-
-4. Ensure the "WebGLBridge" GameObject is in the scene with:
-   - WebGLBridge.cs attached
-   - AppManager reference assigned
-
-5. File → Build Settings → switch Platform to WebGL → click "Switch Platform"
-
-6. Player Settings → Publishing Settings:
-   - Compression Format: Disabled  (avoids .br/.gz serving issues on local dev)
-   - Strip Engine Code: Off
-
-7. Click Build → choose output folder:  depthwizard/unity-build/
-   (The folder name must be exactly "unity-build" at the project root)
-
-8. Start the FastAPI server:
-   uvicorn app.main:app --reload
-
-9. Open http://localhost:8000 in your browser
-   → The engine badge in the viewer corner will show "🎮 Unity"
-   → Upload any image to generate terrain
-
-To switch back to Three.js: rename or delete the unity-build/ folder, then refresh.
-```
-
-### Unity Controls (in WebGL mode)
-| Key / Input | Action |
-|---|---|
-| `W / A / S / D` | Fly forward / left / back / right |
-| `E` or `Space` | Ascend |
-| `Q` or `Shift` | Descend |
-| `Right Mouse + Drag` | Look / rotate view |
-| `Scroll Wheel` | Adjust fly speed |
-
----
-
-
-## 🚀 Running Locally
+## 🚀 Quick Start
 
 ### Prerequisites
-
-- Python 3.10 or later
-- CUDA-capable GPU (recommended) — CPU inference supported but significantly slower
-- Git
+- **Python 3.10+** (Python 3.10 to 3.12 recommended)
+- **CUDA-capable GPU** (optional, recommended for fast inference; CPU inference fully supported)
+- **Modern Browser** (Chrome 90+, Edge 90+, Firefox 100+ with WebGL enabled)
 
 ### 1. Clone the Repository
-
 ```bash
 git clone https://github.com/nandvilkararyan/DepthWizard.git
 cd DepthWizard
 ```
 
-### 2. Create a Virtual Environment
-
+### 2. Create and Activate Virtual Environment
 ```bash
-python -m venv .venv
-
 # Windows
+python -m venv .venv
 .venv\Scripts\activate
 
-# macOS / Linux
+# Linux / macOS
+python3 -m venv .venv
 source .venv/bin/activate
 ```
 
 ### 3. Install Dependencies
-
 ```bash
 pip install -r requirements.txt
 ```
 
-> **Note:** The first run will automatically download the `depth-anything/Depth-Anything-V2-Base-hf` model weights (~400 MB) from HuggingFace Hub. Ensure you have an internet connection.
+> **Note on Model Weights:**
+> - By default, the application will automatically download the standard `depth-anything/Depth-Anything-V2-Base-hf` weights (~400 MB) from Hugging Face Hub upon first run.
+> - To use the optional **DepthWizard Fine-Tuned** model (`model.safetensors`, ~390 MB), download it from the [GitHub Release](https://github.com/AdeshSrivastava-06/DepthWizard/releases/download/v1.0.0/model.safetensors) and place it inside `app/depthwizard_model/model.safetensors`.
+> - If `model.safetensors` is not present, the server automatically falls back to Depth Anything V2 Base with zero interruption.
 
-### 4. Start the Server
-
+### 4. Launch the Server
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 5. Open the App
-
-Navigate to **http://localhost:8000** in any modern browser (Chrome 89+, Firefox 108+, Edge 89+).
+### 5. Open DepthWizard
+Open your browser and navigate to:
+- **DepthWizard Studio**: [http://localhost:8000/app/index.html](http://localhost:8000/app/index.html)
+- **DepthWizard 3D Simulator**: [http://localhost:8000/app/simulator.html](http://localhost:8000/app/simulator.html)
+- **Interactive Swagger API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ---
 
 ## 📡 API Reference
 
 ### `POST /process`
+Executes the end-to-end depth extraction, calibration, formatting, and 3D mesh reconstruction pipeline.
 
-Runs the full DSM extraction pipeline.
+- **Request**: `multipart/form-data`
+  - `file`: Input satellite or aerial image (GeoTIFF, PNG, or JPG) — **Required**
+  - `ref_dem`: Reference DEM GeoTIFF for OLS calibration — *Optional*
+  - `model_id`: Model key (`depthwizard_finetuned`, `depth_anything_v2_small`, `depth_anything_v2_base`, `depth_anything_v2_large`) — *Default: `depthwizard_finetuned`*
+  - `min_alt`: Minimum elevation override in meters — *Optional, default: `0.0`*
+  - `max_alt`: Maximum elevation override in meters — *Optional, default: `100.0`*
+  - `tile_size`: Sliding window tile size in pixels — *Default: `512`*
+  - `overlap_ratio`: Tile overlap fraction ($0.0 - 0.5$) — *Default: `0.20`*
 
-**Request:** `multipart/form-data`
-
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `file` | File | ✅ | — | Input optical image (PNG, JPG, GeoTIFF) |
-| `ref_dem` | File | ❌ | — | Reference DEM GeoTIFF (e.g. SRTM 30m) for OLS calibration |
-| `min_alt` | float | ❌ | `0.0` | Minimum elevation fallback (meters) |
-| `max_alt` | float | ❌ | `500.0` | Maximum elevation fallback (meters) |
-| `tile_size` | int | ❌ | `512` | Sliding window tile size in pixels |
-| `overlap_ratio` | float | ❌ | `0.20` | Tile overlap fraction (0.0 – 0.5) |
-
-**Response:** `application/json`
-
+- **Response**: `application/json`
 ```json
 {
-  "task_id": "dsm_8f29ab4c12",
+  "task_id": "dsm_3b7d939682",
   "status": "success",
   "metadata": {
     "scene_geometry": {
@@ -323,208 +253,129 @@ Runs the full DSM extraction pipeline.
       "aspect_ratio": 1.0
     },
     "elevation_metrics": {
-      "min_elevation_meters": 120.45,
-      "max_elevation_meters": 485.80,
-      "elevation_range_meters": 365.35
+      "min_elevation_meters": 0.0,
+      "max_elevation_meters": 270.5,
+      "elevation_range_meters": 270.5,
+      "suggested_disp_scale": 0.6
     },
-    "calibration_parameters": {
-      "scale_alpha": 4.125,
-      "shift_beta_meters": 115.20,
-      "calibration_type": "reference_dem",
-      "rmse_meters": 1.84,
-      "mae_meters": 1.42
+    "calibration": {
+      "scale_alpha": 3.84,
+      "shift_beta_meters": 12.5,
+      "calibration_type": "SRTM_30m_AUTOMATED",
+      "rmse_meters": 2.14,
+      "mae_meters": 1.68
     },
     "geospatial_metadata": {
       "is_georeferenced": true,
       "crs": "EPSG:4326",
-      "bounds": [72.8, 18.9, 73.0, 19.1],
-      "transform": [0.0002, 0, 72.8, 0, -0.0002, 19.1]
+      "bounds": [77.0, 28.0, 77.1, 28.1]
     }
   },
   "download_urls": {
-    "heightmap_16bit_png":      "/files/dsm_8f29ab4c12_heightmap_unity16.png",
-    "heightmap_8bit_preview_png": "/files/dsm_8f29ab4c12_heightmap_preview8.png",
-    "depth_colorized_png":      "/files/dsm_8f29ab4c12_depth_colorized.png",
-    "optical_texture_png":      "/files/dsm_8f29ab4c12_optical_texture.png",
-    "geotiff_dsm_32bit":        "/files/dsm_8f29ab4c12_dsm_metric.tif",
-    "calibration_metadata_json": "/files/dsm_8f29ab4c12_metadata.json"
+    "heightmap_16bit_png": "/files/dsm_3b7d939682_heightmap_unity16.png",
+    "heightmap_8bit_preview_png": "/files/dsm_3b7d939682_heightmap_preview8.png",
+    "depth_colorized_png": "/files/dsm_3b7d939682_depth_colorized.png",
+    "optical_texture_png": "/files/dsm_3b7d939682_optical_texture.png",
+    "geotiff_dsm_32bit": "/files/dsm_3b7d939682_dsm_metric.tif",
+    "calibration_metadata_json": "/files/dsm_3b7d939682_metadata.json",
+    "mesh_glb": "/files/dsm_3b7d939682_mesh.glb",
+    "pointcloud_ply": "/files/dsm_3b7d939682_pointcloud.ply"
   }
 }
 ```
 
-### `GET /health`
+### `POST /simulate-flood`
+Executes border-connected hydrological flood simulation for a processed DSM.
 
-Returns system diagnostics.
-
+- **Request**: `application/json`
 ```json
-{ "status": "online", "device": "cuda", "model_id": "depth-anything/Depth-Anything-V2-Base-hf", "output_directory": "/app/output" }
+{
+  "task_id": "dsm_3b7d939682",
+  "water_level": 45.0
+}
+```
+- **Response**: `application/json`
+```json
+{
+  "task_id": "dsm_3b7d939682",
+  "status": "success",
+  "water_level_meters": 45.0,
+  "flooded_area_km2": 3.42,
+  "water_volume_m3": 15420000.0,
+  "overlay_png_url": "/files/dsm_3b7d939682_flood_overlay.png"
+}
 ```
 
-### `GET /download/{filename}`
+### `GET /health`
+Returns system status, active compute device (`cuda`, `mps`, or `cpu`), and loaded model configuration.
 
-Direct file download for any asset in the `output/` directory.
+### `GET /download/{filename}`
+Streams generated artifacts from the `output/` directory for download.
 
 ---
 
 ## 🧮 Algorithm Deep Dive
 
-### Module A — Tiled Hann-Window Inference
+### 1. Sliding-Window 2D Hann Cosine Blending
+To prevent GPU Out-Of-Memory (OOM) errors and eliminate seam artifacts across large satellite rasters, images are tiled into overlapping patches and blended using a 2D Hann window:
 
-Large satellite images (> 512×512 px) are processed via a sliding-window approach:
+$$w(i, j) = 0.5 \left(1 - \cos\frac{2\pi (i + 0.5)}{H}\right) \times 0.5 \left(1 - \cos\frac{2\pi (j + 0.5)}{W}\right)$$
 
-1. The image is divided into overlapping `tile_size × tile_size` patches with `overlap_ratio` overlap.
-2. Each patch is independently inferred by Depth Anything V2.
-3. A **2D Hann (raised-cosine) window** weights each tile's contribution:
-   ```
-   w(i, j) = 0.5 × (1 − cos(2π(i+0.5)/H)) × 0.5 × (1 − cos(2π(j+0.5)/W))
-   ```
-4. Weighted predictions are accumulated and normalised:
-   ```
-   D_blended(x, y) = Σ D_tile(x, y) × w(x, y) / Σ w(x, y)
-   ```
+$$D_{\text{blended}}(x, y) = \frac{\sum_k D_k(x, y) \cdot w_k(x, y)}{\sum_k w_k(x, y)}$$
 
-This eliminates the blocky seam artifacts that arise from naive tile stitching.
+### 2. Multi-Strategy Metric Scale Calibration
+Monocular depth estimation yields scale-ambiguous relative depth $D_{\text{rel}}$. DepthWizard recovers real metric elevation $H_{\text{metric}}$ via:
 
-### Module B — OLS Metric Calibration
+- **Automated Regional SRTM/Copernicus Fetching**: Extracts bounding coordinates from georeferenced rasters and retrieves regional 30m DEM elevation patches via Open-Meteo or Open-Elevation APIs.
+- **Ordinary Least Squares (OLS) & Huber Regression**:
+  $$\min_{\alpha, \beta} \sum_i \rho\left(H_{\text{ref}, i} - (\alpha \cdot D_{\text{rel}, i} + \beta)\right)$$
+- **Relative rDSM Fallback**: For unreferenced optical imagery, dynamic percentile clamping ($P_{0.1}$ to $P_{99.9}$) with adaptive outlier suppression normalizes topography smoothly across relative metric units.
 
-The relative depth output of Depth Anything V2 has no absolute scale. Calibration fits a linear mapping:
-
-```
-H_metric = α × D_relative + β
-```
-
-**Georeferenced mode** (reference DEM provided): The reference DEM is reprojected and resampled to match the optical image's spatial extent. OLS regression is solved over all co-registered valid pixels:
-
-```
-[α, β] = (XᵀX)⁻¹ Xᵀ y    where X = [D_relative | 1],  y = H_reference
-```
-
-**Validation metrics** are computed against held-out pixels:
-- RMSE = √(mean((H_pred − H_ref)²))  
-- MAE  = mean(|H_pred − H_ref|)
-
-**Fallback mode** (no reference DEM): Min-max normalisation maps relative depth to a user-specified `[min_alt, max_alt]` elevation range.
+### 3. Surface Reconstruction (Open3D / SciPy)
+- **Point Cloud Generation**: Dense unprojection of $(X, Y, Z)$ coordinates with RGB pixel color binding into binary `.PLY`.
+- **Poisson Surface Reconstruction**: Screened Poisson reconstruction calculates surface normal vectors to generate continuous, watertight triangular surface meshes exported as standard `.GLB`.
 
 ---
 
-## 🌐 Frontend — 3D Terrain Viewer
+## 🛠️ Tech Stack
 
-The browser frontend is a zero-build-step single-page application served directly by FastAPI at `/app/index.html`.
+### Backend
+- **FastAPI**: Asynchronous high-performance REST API
+- **PyTorch**: Deep learning inference and CUDA GPU acceleration
+- **Transformers**: Hugging Face model loading and image processing
+- **Rasterio & GDAL**: Geospatial raster I/O, CRS reprojection, affine transforms
+- **Trimesh & Open3D**: 3D mesh generation, coordinate transforms, GLB export
+- **OpenCV & NumPy & SciPy**: Computer vision, numerical linear algebra, OLS calibration
+- **Requests**: Resilient regional DEM API communication with offline fallbacks
 
-### Key interactions
-
-| Action | Behaviour |
-|---|---|
-| Upload image | Drag-and-drop or click; calls `POST /process` |
-| Load Demo | Loads pre-computed example outputs instantly |
-| Auto Flythrough | Camera orbits the terrain on a parametric ellipse |
-| Click & Drag | Pauses flythrough; switches to free OrbitControls |
-| Elevation Scale slider | Live-adjusts Three.js `displacementScale` |
-| Sun Angle slider | Rotates the directional light in real-time |
-| Fly Speed slider | Controls camera angular velocity |
-
-### Three.js terrain construction
-
-```javascript
-// 256×256 segment plane displaced by 8-bit heightmap
-const geo = new THREE.PlaneGeometry(8, 8, 256, 256);
-const mat = new THREE.MeshStandardMaterial({
-  map: opticalTexture,           // satellite photo
-  displacementMap: heightTexture, // 8-bit grayscale PNG
-  displacementScale: dispScale,   // scaled from elevation_range_meters
-  roughness: 0.88,
-  metalness: 0.04,
-});
-```
-
----
-
-## 🎮 Unity Integration
-
-For teams requiring a native desktop experience, the `unity/` directory contains a complete Unity URP integration:
-
-| Script | Purpose |
-|---|---|
-| `AppManager.cs` | Calls the FastAPI `/process` endpoint from within Unity; downloads and applies heightmap and texture at runtime |
-| `TerrainMeshGenerator.cs` | Decodes a 16-bit PNG into vertex positions for a procedural Unity Mesh |
-| `FlyCameraController.cs` | WASD + RMB free-fly camera with terrain-clearance raycasting |
-| `TerrainInspector.cs` | On-screen IMGUI overlay showing elevation at cursor position |
-| `HeightDisplacement.shader` | Custom URP HLSL shader for GPU-side vertex displacement |
-| `SetupDepthWizardScene.cs` | Editor one-click setup — builds full scene hierarchy automatically |
-
-**One-click setup:** In the Unity Editor, go to `DepthWizard → Setup 3D Elevation Scene`.
+### Frontend
+- **Three.js (r165)**: WebGL 3D rendering engine, custom shaders, and lighting
+- **OrbitControls**: Mouse-driven orbit and inspection controls
+- **Native ES Modules**: Fast, zero-build client-side modular architecture
+- **HTML5 Canvas & Pointer Lock API**: True first-person mouse-look and keyboard flight
 
 ---
 
 ## 🔬 Running Tests
 
+The repository includes a comprehensive automated test suite verifying all pipeline modules:
+
 ```bash
-# Full automated pipeline test suite
-python test_pipeline.py
+# Run the full regression test suite (6 tests)
+python -m unittest test_pipeline.py
 
-# CLI quick test (processes a local image)
-python cli_test.py --input path/to/satellite.tif
+# Run standalone CLI test on any image
+python cli_test.py --input path/to/image.png
 ```
-
----
-
-## 📋 Requirements
-
-```
-fastapi>=0.100.0
-uvicorn[standard]>=0.20.0
-torch>=2.0.0
-torchvision>=0.15.0
-transformers>=4.40.0
-rasterio>=1.3.0
-numpy>=1.24.0
-opencv-python-headless>=4.8.0
-scipy>=1.10.0
-pillow>=9.5.0
-pydantic>=2.0.0
-python-multipart>=0.0.6
-```
-
----
-
-## 🗺️ Roadmap
-
-- [ ] WebSocket / SSE streaming for real-time model progress updates
-- [ ] Integration with Copernicus Open Access Hub for automatic satellite tile fetching
-- [ ] Support for Depth Anything V3 / metric depth models (ZoeDepth, UniDepth)
-- [ ] Batch processing API endpoint for multi-tile mosaic generation
-- [ ] Contour line and slope/aspect raster export
-- [ ] GCP (ground control points) upload for precision OLS calibration
-- [ ] Point cloud (.LAS / .PLY) export from the calibrated DSM
-
----
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature-name`
-3. Commit your changes: `git commit -m "feat: add your feature"`
-4. Push to the branch: `git push origin feature/your-feature-name`
-5. Open a Pull Request
 
 ---
 
 ## 📄 License
 
-This project is released under the **MIT License**. See [LICENSE](LICENSE) for details.
-
----
-
-## 🙏 Acknowledgements
-
-- [Depth Anything V2](https://depth-anything.github.io/) — Lihe Yang et al., 2024
-- [HuggingFace Transformers](https://huggingface.co/transformers) — model hosting and inference
-- [Three.js](https://threejs.org/) — WebGL 3D rendering engine
-- [Rasterio](https://rasterio.readthedocs.io/) — geospatial raster I/O
-- [FastAPI](https://fastapi.tiangolo.com/) — modern Python web framework
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
 
 ---
 
 <div align="center">
-Built for the <strong>ISRO DepthWizard Hackathon</strong> · 2026
+Built for the <strong>ISRO DepthWizard Project</strong>
 </div>
