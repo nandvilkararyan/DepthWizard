@@ -8,7 +8,6 @@
  *   - Keyboard flight controls (WASD, QE, Space)
  *   - Interactive 2D Cross-Section Profile [Line A-B] sampled from DSM
  *   - Water flood simulation & inundation risk calculation
- *   - CesiumJS photorealistic globe bridge
  */
 
 import * as THREE from "three";
@@ -26,6 +25,9 @@ import {
   setCameraWalk,
   getIsWalkMode,
   getWalkTelemetry,
+  setCameraDrone,
+  getIsDroneMode,
+  getDroneTelemetry,
   getTerrainElevationAt,
   setTerrainTexture,
   setKeyDown,
@@ -41,19 +43,11 @@ import {
   animateFloodRising,
   stopFloodAnimation,
   getFloodState,
+  getRealisticFloodMax,
+  MAX_REALISTIC_FLOOD_METERS,
   forceResize,
+  getRenderFps,
 } from "/app/viewer.js";
-
-import {
-  initCesiumViewer,
-  loadCesiumModel,
-  setCesiumLandmark,
-  setCesiumDrapeMode,
-  setCesiumSolarTime,
-  updateCesiumModelTransform,
-  toggleCesiumMeasurement,
-  clearCesiumMeasurement,
-} from "/app/cesium_viewer.js";
 
 (function () {
   'use strict';
@@ -61,7 +55,6 @@ import {
   // ── DOM References ────────────────────────────────────────────────────────
   const canvasWrap = document.getElementById('viewport-canvas');
   const threeCanvas = document.getElementById('threejs-canvas');
-  const cesiumContainer = document.getElementById('cesium-container');
 
   // Flight Telemetry HUD
   const hudHeading = document.getElementById('sim-heading');
@@ -77,8 +70,6 @@ import {
   const btnModeWireframe = document.getElementById('btn-mode-wireframe');
   const btnModeHeatmap = document.getElementById('btn-mode-heatmap');
   const btnModeIsolines = document.getElementById('btn-mode-isolines');
-  const btnEngineThree = document.getElementById('btn-engine-three');
-  const btnEngineCesium = document.getElementById('btn-engine-cesium');
 
   const sunSlider = document.getElementById('sun-slider');
   const sunLabel = document.getElementById('sun-label');
@@ -124,7 +115,6 @@ import {
 
   // ── State ─────────────────────────────────────────────────────────────────
   let activeTask = null;
-  let activeEngine = 'threejs'; // 'threejs' or 'cesium'
   let activeCameraMode = 'orbit'; // 'fpv', 'orbit', 'nadir'
   let isFlying = false;
   let isFloodAnimating = false;
@@ -340,39 +330,26 @@ import {
   // ── Telemetry Animation Loop ──────────────────────────────────────────────
   function startTelemetryLoop() {
     function tick(now) {
-      frameCount++;
-      if (now - lastTime >= 1000) {
-        currentFps = frameCount;
-        frameCount = 0;
+      // Dynamic FPS readout: sample every 200ms for responsive display
+      if (now - lastTime >= 200) {
+        currentFps = getRenderFps();
         lastTime = now;
         if (hudFps) hudFps.textContent = `${currentFps} FPS`;
       }
 
-      // Update synthetic flight or ground walk instrumentation
-      if (activeCameraMode === 'walk') {
-        const telemetry = getWalkTelemetry();
-        if (telemetry) {
-          if (hudHeading) hudHeading.textContent = `${telemetry.headingDeg}° ${telemetry.headingDir}`;
-          if (hudAltitude) hudAltitude.textContent = `${telemetry.eyeHeightM} m AGL`;
-          if (hudAirspeed) hudAirspeed.textContent = `${telemetry.speedMs} m/s`;
-          if (hudAttitude) hudAttitude.textContent = `${telemetry.pitchDeg}° / 0°`;
+      // Real-time dynamic telemetry on every animation frame
+      const telemetry = (activeCameraMode === 'walk')
+        ? getWalkTelemetry()
+        : getDroneTelemetry();
+
+      if (telemetry) {
+        if (hudHeading) hudHeading.textContent = `${telemetry.headingDeg}° ${telemetry.headingDir}`;
+        if (hudAltitude) hudAltitude.textContent = `${telemetry.altitudeM || telemetry.eyeHeightM} m AGL`;
+        if (hudAirspeed) hudAirspeed.textContent = `${telemetry.speedMs} m/s`;
+        if (hudAttitude) {
+          const roll = telemetry.rollDeg || '0';
+          hudAttitude.textContent = `${telemetry.pitchDeg}° / ${roll}°`;
         }
-      } else if (isFlying || activeCameraMode === 'fpv') {
-        const timeSec = now * 0.001;
-        const hdg = Math.floor((timeSec * 15) % 360);
-        const compassDirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-        const dir = compassDirs[Math.floor((hdg + 22.5) / 45) % 8];
-        if (hudHeading) hudHeading.textContent = `${String(hdg).padStart(3, '0')}° ${dir}`;
-
-        const alt = (55.0 + Math.sin(timeSec * 0.8) * 12.0).toFixed(1);
-        if (hudAltitude) hudAltitude.textContent = `${alt} m`;
-
-        const spd = (16.0 + Math.cos(timeSec * 0.5) * 3.5).toFixed(1);
-        if (hudAirspeed) hudAirspeed.textContent = `${spd} m/s`;
-
-        const pitch = Math.round(Math.sin(timeSec * 0.7) * 8 - 4);
-        const roll = Math.round(Math.cos(timeSec * 0.9) * 5);
-        if (hudAttitude) hudAttitude.textContent = `${pitch}° / ${roll}°`;
       }
 
       requestAnimationFrame(tick);
@@ -396,13 +373,6 @@ import {
       btnModeIsolines.addEventListener('click', () => setRenderMode('isolines'));
     }
 
-    // Engine switcher
-    if (btnEngineThree) {
-      btnEngineThree.addEventListener('click', () => switchEngine('threejs'));
-    }
-    if (btnEngineCesium) {
-      btnEngineCesium.addEventListener('click', () => switchEngine('cesium'));
-    }
 
     // Sun Angle Slider
     if (sunSlider && sunLabel) {
@@ -410,9 +380,8 @@ import {
         const val = parseFloat(e.target.value);
         const hours = Math.floor(val);
         const mins = (val % 1 === 0.5) ? '30' : '00';
-        sunLabel.textContent = `${hours}:${mins} EST`;
+        sunLabel.textContent = `${hours}:${mins} IST`;
         setSunAngle(val * 20.0);
-        setCesiumSolarTime(val);
       });
     }
 
@@ -462,9 +431,7 @@ import {
 
     // Mesh Overlay Toggles
     if (meshToggle) {
-      meshToggle.addEventListener('change', (e) => {
-        toggleMeshOverlay();
-      });
+      meshToggle.addEventListener('change', () => toggleMeshOverlay());
     }
     if (meshWireframeToggle) {
       meshWireframeToggle.addEventListener('change', (e) => {
@@ -489,18 +456,44 @@ import {
     if (floodSlider && floodVal) {
       floodSlider.addEventListener('input', (e) => {
         const val = parseFloat(e.target.value);
+        if (isFloodAnimating) {
+          isFloodAnimating = false;
+          stopFloodAnimation();
+          if (btnFloodAnimate) {
+            btnFloodAnimate.innerHTML = `▶ Animate Rising`;
+            btnFloodAnimate.classList.remove('bg-secondary', 'text-on-secondary');
+          }
+        }
         floodVal.textContent = `${val.toFixed(1)} m`;
         setFloodLevel(val);
       });
     }
+
     if (btnFloodAnimate) {
       btnFloodAnimate.addEventListener('click', () => {
         isFloodAnimating = !isFloodAnimating;
         if (isFloodAnimating) {
+          // Ensure flood water is visible
+          if (floodToggle && !floodToggle.checked) {
+            floodToggle.checked = true;
+            setFloodVisible(true);
+          }
           btnFloodAnimate.innerHTML = `⏸ Stop Rise`;
           btnFloodAnimate.classList.add('bg-secondary', 'text-on-secondary');
+
+          const min = parseFloat(floodSlider.min || 0);
           const max = parseFloat(floodSlider.max || 100);
-          animateFloodRising(max, 15000);
+          const realisticCap = getRealisticFloodMax(min, max);
+          const current = parseFloat(floodSlider.value || min);
+
+          // If current water level is already at or above the realistic crest, restart from base
+          if (current >= realisticCap - 0.5) {
+            setFloodLevel(min);
+            if (floodSlider) floodSlider.value = min.toString();
+          }
+
+          // Animate rise smoothly to the realistic 50m cap (stops there)
+          animateFloodRising(realisticCap, 8000);
         } else {
           btnFloodAnimate.innerHTML = `▶ Animate Rising`;
           btnFloodAnimate.classList.remove('bg-secondary', 'text-on-secondary');
@@ -509,24 +502,37 @@ import {
       });
     }
 
+    // Reset button when animation finishes naturally at the realistic cap
+    document.addEventListener('dw:floodAnimComplete', () => {
+      isFloodAnimating = false;
+      if (btnFloodAnimate) {
+        btnFloodAnimate.innerHTML = `▶ Animate Rising`;
+        btnFloodAnimate.classList.remove('bg-secondary', 'text-on-secondary');
+      }
+    });
+
     // React to custom events from viewer.js
     document.addEventListener('dw:floodUpdate', (e) => {
       const detail = e.detail || {};
       if (floodVal && detail.meters !== undefined) {
         floodVal.textContent = `${detail.meters.toFixed(1)} m`;
       }
-      if (floodSlider && detail.meters !== undefined && !isFloodAnimating) {
+      if (floodSlider && detail.meters !== undefined) {
         floodSlider.value = detail.meters.toString();
       }
-      if (floodSubmerged && detail.submergedPct !== undefined) {
-        floodSubmerged.textContent = `${detail.submergedPct.toFixed(1)}%`;
+      if (floodSubmerged && (detail.submergedPct !== undefined || detail.pct !== undefined)) {
+        const val = detail.submergedPct !== undefined ? detail.submergedPct : detail.pct;
+        floodSubmerged.textContent = `${val.toFixed(1)}%`;
       }
-      if (floodDepth && detail.depthAboveMin !== undefined) {
-        floodDepth.textContent = `+${detail.depthAboveMin.toFixed(1)} m`;
+      if (floodDepth && (detail.depthAboveMin !== undefined || detail.depth !== undefined)) {
+        const d = detail.depthAboveMin !== undefined ? detail.depthAboveMin : detail.depth;
+        floodDepth.textContent = `+${d.toFixed(1)} m`;
       }
-      if (floodRiskBadge && detail.risk) {
-        floodRiskBadge.textContent = detail.risk.label;
-        floodRiskBadge.className = `px-2 py-0.5 rounded font-mono-data-sm text-[10px] font-bold uppercase ${detail.risk.cssClass}`;
+      if (floodRiskBadge) {
+        const label = detail.risk?.label || detail.riskLabel || 'Minimal Risk';
+        const cssClass = detail.risk?.cssClass || detail.riskClass || 'risk-safe';
+        floodRiskBadge.textContent = label;
+        floodRiskBadge.className = `px-2 py-0.5 rounded font-mono-data-sm text-[10px] font-bold uppercase ${cssClass}`;
       }
     });
 
@@ -568,13 +574,11 @@ import {
       if (activeTask && activeTask.download_urls && activeTask.download_urls.optical_texture_png) {
         setTerrainTexture(activeTask.download_urls.optical_texture_png);
       }
-      setCesiumDrapeMode('optical');
     } else if (mode === 'wireframe') {
       btnModeWireframe.className = 'px-3 py-1 rounded font-mono-data-sm text-mono-data-sm transition-all bg-primary-container text-on-primary-container font-semibold shadow-[0_0_12px_rgba(0,240,255,0.4)]';
       setMeshWireframe(true);
       setTerrainWireframe(true);
       if (meshWireframeToggle) meshWireframeToggle.checked = true;
-      setCesiumDrapeMode('mesh_only');
     } else if (mode === 'heatmap') {
       btnModeHeatmap.className = 'px-3 py-1 rounded font-mono-data-sm text-mono-data-sm transition-all bg-primary-container text-on-primary-container font-semibold shadow-[0_0_12px_rgba(0,240,255,0.4)]';
       setMeshWireframe(false);
@@ -583,35 +587,11 @@ import {
       if (activeTask && activeTask.download_urls && activeTask.download_urls.depth_colorized_png) {
         setTerrainTexture(activeTask.download_urls.depth_colorized_png);
       }
-      setCesiumDrapeMode('depth');
     } else if (mode === 'isolines') {
       btnModeIsolines.className = 'px-3 py-1 rounded font-mono-data-sm text-mono-data-sm transition-all bg-primary-container text-on-primary-container font-semibold shadow-[0_0_12px_rgba(0,240,255,0.4)]';
       setMeshWireframe(true);
       setTerrainWireframe(true);
       if (meshWireframeToggle) meshWireframeToggle.checked = true;
-    }
-  }
-
-  function switchEngine(engine) {
-    activeEngine = engine;
-    if (engine === 'threejs') {
-      btnEngineThree.className = 'px-2.5 py-1 rounded bg-surface-container text-primary font-mono-data-sm text-mono-data-sm font-semibold border border-primary-container/30';
-      btnEngineCesium.className = 'px-2.5 py-1 rounded hover:bg-surface-container text-on-surface-variant font-mono-data-sm text-mono-data-sm';
-      if (threeCanvas) threeCanvas.style.display = 'block';
-      if (cesiumContainer) cesiumContainer.style.display = 'none';
-    } else {
-      btnEngineCesium.className = 'px-2.5 py-1 rounded bg-surface-container text-primary font-mono-data-sm text-mono-data-sm font-semibold border border-primary-container/30';
-      btnEngineThree.className = 'px-2.5 py-1 rounded hover:bg-surface-container text-on-surface-variant font-mono-data-sm text-mono-data-sm';
-      if (threeCanvas) threeCanvas.style.display = 'none';
-      if (cesiumContainer) {
-        cesiumContainer.style.display = 'block';
-        if (!cesiumContainer.hasChildNodes()) {
-          initCesiumViewer('cesium-container');
-          if (activeTask && activeTask.download_urls) {
-            loadCesiumModel(activeTask.download_urls.mesh_glb, activeTask.download_urls.optical_texture_png, activeTask.metadata);
-          }
-        }
-      }
     }
   }
 
@@ -625,6 +605,7 @@ import {
       if (btnCamWalk) btnCamWalk.classList.add('bg-surface-container-high', 'text-primary');
       isFlying = false;
       setFlythrough(false);
+      setCameraDrone(false);
       setCameraWalk(true);
       if (walkOverlay) walkOverlay.classList.remove('hidden');
       if (walkLockHint) walkLockHint.style.display = 'flex';
@@ -638,16 +619,19 @@ import {
 
       if (rig === 'fpv') {
         if (btnCamFpv) btnCamFpv.classList.add('bg-surface-container-high', 'text-primary');
-        isFlying = true;
-        setFlythrough(true);
+        isFlying = false;
+        setFlythrough(false);
+        setCameraDrone(true);
       } else if (rig === 'orbit') {
         if (btnCamOrbit) btnCamOrbit.classList.add('bg-surface-container-high', 'text-primary');
         isFlying = false;
         setFlythrough(false);
+        setCameraDrone(false);
       } else if (rig === 'nadir') {
         if (btnCamNadir) btnCamNadir.classList.add('bg-surface-container-high', 'text-primary');
         isFlying = false;
         setFlythrough(false);
+        setCameraDrone(false);
         setCameraNadir();
       }
     }

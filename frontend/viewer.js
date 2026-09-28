@@ -48,7 +48,7 @@ let isWalkMode = false;
 let walkYaw = 0;           // horizontal camera rotation (radians)
 let walkPitch = 0;         // vertical camera rotation (radians)
 let walkEyeHeight = 0.035; // eye height in Three.js world units (~1.7m human height)
-let walkSpeedBase = 0.022; // units per frame (standard walking speed)
+let walkSpeedBase = 0.013; // units per frame (standard walking speed)
 let _lastValidGroundY = null;
 let walkBobTimer = 0;
 const _walkRaycaster = new THREE.Raycaster();
@@ -56,6 +56,9 @@ const _walkRayOrigin = new THREE.Vector3();
 const _downVec = new THREE.Vector3(0, -1, 0);
 const _walkFwd = new THREE.Vector3();
 const _walkRight = new THREE.Vector3();
+
+// Drone FPV mode state
+let isDroneMode = false;
 
 // Terrain parameters (updated from metadata)
 let elevationScale = 1.0;
@@ -100,7 +103,7 @@ export function initViewer(canvasEl) {
   renderer.shadowMap.type = THREE.PCFShadowMap;   // BasicShadowMap is fastest; PCF is a good middle ground
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.3;
+  renderer.toneMappingExposure = 1.45;
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x070b17);
@@ -132,11 +135,11 @@ export function initViewer(canvasEl) {
   controls.autoRotate = false; // disable auto-rotate for better manual control
 
   // Lights
-  const ambient = new THREE.AmbientLight(0xffffff, 1.0);
+  const ambient = new THREE.AmbientLight(0xffffff, 1.35);
   ambient.name = "ambient";
   scene.add(ambient);
 
-  const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+  const sun = new THREE.DirectionalLight(0xffffff, 3.2);
   sun.name = "sun";
   sun.position.set(5, 10, 7);
   sun.target.position.set(0, 0, 0);
@@ -152,7 +155,7 @@ export function initViewer(canvasEl) {
   scene.add(sun);
 
   // Subtle hemisphere fill
-  scene.add(new THREE.HemisphereLight(0x1a3a5c, 0x0a0e1a, 0.5));
+  scene.add(new THREE.HemisphereLight(0x243e60, 0x0e1424, 0.65));
 
   // Stars particle field
   _addStars();
@@ -576,9 +579,33 @@ export function toggleFlythrough() {
 
 export function setFlythrough(active) {
   if (active && isWalkMode) setCameraWalk(false);
+  if (active && isDroneMode) isDroneMode = false;
   isFlying = active;
   controls.enabled = !active;
   if (active) flyClock = new THREE.Clock();
+}
+
+export function setCameraDrone(active) {
+  if (active) {
+    if (isWalkMode) setCameraWalk(false);
+    isFlying = false;
+    isDroneMode = true;
+    if (controls) {
+      controls.enabled = true;
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+      if (camera) {
+        camera.getWorldDirection(_fwdVec);
+        controls.target.copy(camera.position).addScaledVector(_fwdVec, 4);
+      }
+    }
+  } else {
+    isDroneMode = false;
+  }
+}
+
+export function getIsDroneMode() {
+  return isDroneMode;
 }
 
 /**
@@ -653,11 +680,11 @@ function _updateWalkScale(metadata) {
   if (widthM > 0) {
     const unitsPerMeter = terrainW / widthM;
     walkEyeHeight = Math.max(0.025, Math.min(0.12, 1.7 * unitsPerMeter));
-    walkSpeedBase = Math.max(0.015, Math.min(0.06, 1.4 * unitsPerMeter));
+    walkSpeedBase = Math.max(0.008, Math.min(0.030, 0.9 * unitsPerMeter));
   } else {
     // Relative rDSM default: 8 units ≈ 500m -> 1.7m human eye height ≈ 0.035 units
     walkEyeHeight = 0.035;
-    walkSpeedBase = 0.022;
+    walkSpeedBase = 0.013;
   }
 }
 
@@ -689,6 +716,7 @@ export function setCameraWalk(active) {
   isWalkMode = active;
   if (active) {
     isFlying = false;
+    isDroneMode = false;
     if (controls) controls.enabled = false;
     _updateWalkScale();
     _spawnWalkPlayer();
@@ -711,28 +739,101 @@ export function getIsWalkMode() {
   return isWalkMode;
 }
 
+// Physics-based velocity tracking for telemetry (shared across all camera modes)
+const _prevCamPos = new THREE.Vector3();
+let _lastTelemetryTime = performance.now();
+let _smoothedSpeedMs = 0.0;
+let _telemetryInitialized = false;
+
 export function getWalkTelemetry() {
-  if (!isWalkMode) return null;
+  if (!isWalkMode || !camera) return null;
   const deg = Math.round(((THREE.MathUtils.radToDeg(-walkYaw) % 360) + 360) % 360);
   const compassDirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   const dir = compassDirs[Math.floor((deg + 22.5) / 45) % 8];
   const pitchDeg = Math.round(THREE.MathUtils.radToDeg(walkPitch));
 
-  const isMoving = _keysDown['w'] || _keysDown['s'] || _keysDown['a'] || _keysDown['d'];
-  const isSprint = _keysDown['shift'];
-  const speedMs = isMoving ? (isSprint ? 3.5 : 1.4) : 0.0;
+  // Physics-based speed from camera position delta (shared with drone mode)
+  const now = performance.now();
+  const dt = (now - _lastTelemetryTime) / 1000.0;
+  if (dt > 0.001) {
+    if (!_telemetryInitialized) {
+      _prevCamPos.copy(camera.position);
+      _telemetryInitialized = true;
+    }
+    const elevRange = _lastMetadata?.elevation_metrics?.elevation_range_meters || 100.0;
+    const dispScale = _lastDispScale || 0.6;
+    const metersPerUnit = dispScale > 0 ? (elevRange / dispScale) : 50.0;
+    const distUnits = camera.position.distanceTo(_prevCamPos);
+    const instantSpeedMs = (distUnits * metersPerUnit) / dt;
+    _smoothedSpeedMs = _smoothedSpeedMs * 0.75 + instantSpeedMs * 0.25;
+    if (distUnits < 0.00005 && _smoothedSpeedMs < 0.1) _smoothedSpeedMs = 0.0;
+    _prevCamPos.copy(camera.position);
+    _lastTelemetryTime = now;
+  }
 
   return {
     headingDeg: String(deg).padStart(3, '0'),
     headingDir: dir,
     eyeHeightM: (1.7).toFixed(1),
-    speedMs: speedMs.toFixed(1),
+    altitudeM: (1.7).toFixed(1),
+    speedMs: _smoothedSpeedMs.toFixed(1),
     pitchDeg: pitchDeg >= 0 ? `+${pitchDeg}` : `${pitchDeg}`,
+    rollDeg: '0',
+  };
+}
+
+export function getDroneTelemetry() {
+  if (!camera) return null;
+  camera.getWorldDirection(_fwdVec);
+
+  const angleRad = Math.atan2(_fwdVec.x, -_fwdVec.z);
+  const deg = Math.round(((THREE.MathUtils.radToDeg(angleRad) % 360) + 360) % 360);
+  const compassDirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const dir = compassDirs[Math.floor((deg + 22.5) / 45) % 8];
+
+  const pitchDeg = Math.round(THREE.MathUtils.radToDeg(Math.asin(Math.max(-1, Math.min(1, _fwdVec.y)))));
+
+  const groundElev = getTerrainElevationAt(camera.position.x, camera.position.z) ?? 0;
+  const heightUnits = Math.max(0, camera.position.y - groundElev);
+
+  const elevRange = _lastMetadata?.elevation_metrics?.elevation_range_meters || 100.0;
+  const dispScale = _lastDispScale || 0.6;
+  const metersPerUnit = dispScale > 0 ? (elevRange / dispScale) : 50.0;
+  const altM = Math.max(0.5, heightUnits * metersPerUnit);
+
+  // Physics-based speed: actual camera displacement per unit time with EMA smoothing
+  const now = performance.now();
+  const dt = (now - _lastTelemetryTime) / 1000.0;
+  if (dt > 0.001) {
+    if (!_telemetryInitialized) {
+      _prevCamPos.copy(camera.position);
+      _telemetryInitialized = true;
+    }
+    const distUnits = camera.position.distanceTo(_prevCamPos);
+    const instantSpeedMs = (distUnits * metersPerUnit) / dt;
+    _smoothedSpeedMs = _smoothedSpeedMs * 0.75 + instantSpeedMs * 0.25;
+    if (distUnits < 0.00005 && _smoothedSpeedMs < 0.1) _smoothedSpeedMs = 0.0;
+    _prevCamPos.copy(camera.position);
+    _lastTelemetryTime = now;
+  }
+
+  // Dynamic roll from camera matrix
+  const rollRad = Math.atan2(camera.matrixWorld.elements[4], camera.matrixWorld.elements[5]);
+  const rollDeg = Math.round(THREE.MathUtils.radToDeg(rollRad));
+
+  return {
+    headingDeg: String(deg).padStart(3, '0'),
+    headingDir: dir,
+    altitudeM: altM.toFixed(1),
+    speedMs: _smoothedSpeedMs.toFixed(1),
+    pitchDeg: pitchDeg >= 0 ? `+${pitchDeg}` : `${pitchDeg}`,
+    rollDeg: rollDeg !== 0 ? `${rollDeg}` : '0',
   };
 }
 
 export function resetCamera() {
   if (isWalkMode) setCameraWalk(false);
+  isDroneMode = false;
   isFlying = false;
   if (controls) {
     controls.enabled = true;
@@ -747,6 +848,7 @@ export function resetCamera() {
 
 export function setCameraNadir() {
   if (isWalkMode) setCameraWalk(false);
+  isDroneMode = false;
   isFlying = false;
   if (controls) {
     controls.enabled = true;
@@ -943,15 +1045,28 @@ export async function initFloodSimulator(heightmapUrl, metadata) {
   );
 }
 
+export const MAX_REALISTIC_FLOOD_METERS = 50.0;
+
+/**
+ * Returns the maximum realistic flood elevation (meters).
+ * Calculated as the minimum elevation plus MAX_REALISTIC_FLOOD_METERS (50m),
+ * clamped by the model's peak elevation so mountains/hills aren't submerged.
+ */
+export function getRealisticFloodMax(minElev = null, maxElev = null) {
+  const min = minElev !== null ? minElev : _flood.minElev;
+  const max = maxElev !== null ? maxElev : _flood.maxElev;
+  return Math.min(min + MAX_REALISTIC_FLOOD_METERS, max);
+}
+
 /**
  * Moves the water plane to the specified absolute elevation (meters).
- * Returns { pct, riskLabel } for the UI.
+ * Returns { pct, riskLabel, submergedPct, depthAboveMin, risk } for the UI.
  *
  * @param {number} meters – Target water elevation in meters
- * @returns {{ pct: number, riskLabel: string }}
+ * @returns {{ pct: number, riskLabel: string, submergedPct: number, depthAboveMin: number, risk: { label: string, cssClass: string } }}
  */
 export function setFloodLevel(meters) {
-  if (!_flood.mesh) return { pct: 0, riskLabel: "No terrain" };
+  if (!_flood.mesh) return { pct: 0, riskLabel: "No terrain", submergedPct: 0, depthAboveMin: 0 };
 
   const clampedMeters = Math.max(
     _flood.minElev,
@@ -977,29 +1092,37 @@ export function setFloodLevel(meters) {
     pct = (below / _flood.vertexCount) * 100;
   }
 
-  // ── Risk label ────────────────────────────────────────────────────
+  const depthAboveMin = Math.max(0, clampedMeters - _flood.minElev);
+
+  // ── Risk label & CSS classes ──────────────────────────────────────
   let riskLabel, riskClass;
   if (pct < 5) {
-    riskLabel = "Minimal";
-    riskClass = "safe";
+    riskLabel = "Minimal Risk";
+    riskClass = "risk-safe";
   } else if (pct < 15) {
-    riskLabel = "Low";
-    riskClass = "low";
+    riskLabel = "Low Risk";
+    riskClass = "risk-low";
   } else if (pct < 35) {
-    riskLabel = "Moderate";
-    riskClass = "moderate";
+    riskLabel = "Moderate Risk";
+    riskClass = "risk-moderate";
   } else if (pct < 60) {
-    riskLabel = "Severe";
-    riskClass = "severe";
-  } else if (pct < 85) {
-    riskLabel = "Extreme";
-    riskClass = "extreme";
+    riskLabel = "High Risk";
+    riskClass = "risk-high";
   } else {
-    riskLabel = "Catastrophic";
-    riskClass = "catastrophic";
+    riskLabel = "Severe Risk";
+    riskClass = "risk-severe";
   }
 
-  const result = { meters: clampedMeters, pct, riskLabel, riskClass };
+  const result = {
+    meters: clampedMeters,
+    pct,
+    submergedPct: pct,
+    depthAboveMin,
+    depth: depthAboveMin,
+    riskLabel,
+    riskClass,
+    risk: { label: riskLabel, cssClass: riskClass }
+  };
   _floodEvent(result);
   return result;
 }
@@ -1014,16 +1137,20 @@ export function setFloodLevelPct(frac) {
 }
 
 /**
- * Animates water rising smoothly from the current level to targetMeters.
- * @param {number} targetMeters
- * @param {number} durationMs – default 4000ms
+ * Animates water rising smoothly from current level to a realistic flood crest.
+ * By default, caps rise at getRealisticFloodMax() (e.g. baseline + 50m) so it does
+ * not submerge mountains or peaks unrealistically.
+ *
+ * @param {number|null} targetMeters – Target elevation in meters (defaults to 50m above base)
+ * @param {number} durationMs – Duration in milliseconds (default 8000ms)
+ * @param {Function|null} onComplete – Callback when animation completes
  */
-export function animateFloodRising(targetMeters = null, durationMs = 4000) {
+export function animateFloodRising(targetMeters = null, durationMs = 8000, onComplete = null) {
   if (!_flood.mesh) return;
   if (_flood.animRaf) cancelAnimationFrame(_flood.animRaf);
 
-  const target =
-    targetMeters ?? _flood.minElev + (_flood.maxElev - _flood.minElev) * 0.75;
+  const realisticCap = getRealisticFloodMax();
+  const target = targetMeters !== null ? Math.min(targetMeters, _flood.maxElev) : realisticCap;
   const startMeters = _flood.currentLevel;
   const startTime = performance.now();
 
@@ -1036,18 +1163,13 @@ export function animateFloodRising(targetMeters = null, durationMs = 4000) {
       _flood.animRaf = requestAnimationFrame(step);
     } else {
       _flood.animRaf = null;
-      // Ensure water plane stays visible after animation completes
       if (_flood.mesh) {
         _flood.mesh.visible = _flood.visible;
-        console.log(
-          "[FloodSim] Animation complete." +
-          ` Final position.y=${_flood.mesh.position.y.toFixed(4)}` +
-          ` visible=${_flood.mesh.visible}` +
-          ` currentLevel=${_flood.currentLevel.toFixed(2)}m` +
-          ` dispScale=${_flood.dispScale.toFixed(4)}` +
-          ` dispBias=${_flood.dispBias.toFixed(4)}`
-        );
       }
+      document.dispatchEvent(new CustomEvent("dw:floodAnimComplete", {
+        detail: { finalMeters: target, isRealisticCap: target <= realisticCap }
+      }));
+      if (typeof onComplete === "function") onComplete();
     }
   }
 
@@ -1117,7 +1239,7 @@ export function setSunAngle(degrees) {
   const rad = THREE.MathUtils.degToRad(degrees);
   const sun = scene.getObjectByName("sun");
   if (sun) {
-    sun.position.set(Math.cos(rad) * 360, 300, Math.sin(rad) * 360);
+    sun.position.set(Math.cos(rad) * 14, 12, Math.sin(rad) * 14);
     sun.target.position.set(0, 0, 0);
     sun.target.updateMatrixWorld();
   }
@@ -1156,7 +1278,7 @@ function _startRenderLoop() {
 
       const isSprint = !!_keysDown['shift'];
       const speedMultiplier = (flySpeed || 0.1) / 0.1;
-      const currentSpeed = (walkSpeedBase || 0.022) * speedMultiplier * (isSprint ? 2.2 : 1.0);
+      const currentSpeed = (walkSpeedBase || 0.013) * speedMultiplier * (isSprint ? 1.8 : 1.0);
 
       let moveX = 0;
       let moveZ = 0;
@@ -1181,7 +1303,7 @@ function _startRenderLoop() {
       if (moveLen > 0.0001) {
         camera.position.x += (moveX / moveLen) * currentSpeed;
         camera.position.z += (moveZ / moveLen) * currentSpeed;
-        walkBobTimer += (isSprint ? 0.22 : 0.14);
+        walkBobTimer += (isSprint ? 0.16 : 0.10);
       } else {
         walkBobTimer = 0;
       }
@@ -1207,19 +1329,80 @@ function _startRenderLoop() {
         // Smooth lerp to ground level
         camera.position.y += (targetY - camera.position.y) * 0.4;
       }
+    } else if (isDroneMode && camera) {
+      // ── Drone FPV Flight Mode ─────────────────────────────────────────
+      const baseSpeed = Math.max(0.04, (flySpeed || 0.1) * 1.5);
+      const isBoost = !!_keysDown['shift'];
+      const speed = baseSpeed * (isBoost ? 2.2 : 1.0);
+
+      camera.getWorldDirection(_fwdVec);
+      _rightVec.crossVectors(_fwdVec, camera.up).normalize();
+
+      const moveDelta = new THREE.Vector3();
+
+      if (_keysDown['w'] || _keysDown['arrowup']) moveDelta.addScaledVector(_fwdVec, speed);
+      if (_keysDown['s'] || _keysDown['arrowdown']) moveDelta.addScaledVector(_fwdVec, -speed);
+      if (_keysDown['a']) moveDelta.addScaledVector(_rightVec, -speed);
+      if (_keysDown['d']) moveDelta.addScaledVector(_rightVec, speed);
+      if (_keysDown['e'] || _keysDown[' ']) moveDelta.y += speed; // E or Space ascends
+      if (_keysDown['q']) moveDelta.y -= speed; // Q descends
+
+      // Arrow keys for yaw steering
+      if (_keysDown['arrowleft']) {
+        const yawAngle = 0.025;
+        camera.rotation.y += yawAngle;
+        if (controls) {
+          const offset = controls.target.clone().sub(camera.position);
+          offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), yawAngle);
+          controls.target.copy(camera.position).add(offset);
+        }
+      }
+      if (_keysDown['arrowright']) {
+        const yawAngle = -0.025;
+        camera.rotation.y += yawAngle;
+        if (controls) {
+          const offset = controls.target.clone().sub(camera.position);
+          offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), yawAngle);
+          controls.target.copy(camera.position).add(offset);
+        }
+      }
+
+      if (moveDelta.lengthSq() > 0) {
+        camera.position.add(moveDelta);
+        if (controls) {
+          controls.target.add(moveDelta);
+        }
+      }
+
+      // Prevent clipping below terrain ground
+      const groundElev = getTerrainElevationAt(camera.position.x, camera.position.z);
+      if (groundElev !== null && camera.position.y < groundElev + 0.15) {
+        const lift = (groundElev + 0.15) - camera.position.y;
+        camera.position.y += lift;
+        if (controls) controls.target.y += lift;
+      }
+
+      // Smooth mouse look & OrbitControls updates
+      if (controls && controls.enabled) {
+        controls.update();
+      }
     } else if (hasFlightKeys && camera) {
       const speed = Math.max(0.04, (flySpeed || 0.1) * 1.5);
       camera.getWorldDirection(_fwdVec);
       _rightVec.crossVectors(_fwdVec, camera.up).normalize();
 
-      if (_keysDown['w']) camera.position.addScaledVector(_fwdVec, speed);
-      if (_keysDown['s']) camera.position.addScaledVector(_fwdVec, -speed);
-      if (_keysDown['a']) camera.position.addScaledVector(_rightVec, -speed);
-      if (_keysDown['d']) camera.position.addScaledVector(_rightVec, speed);
-      if (_keysDown['q']) camera.position.y += speed;
-      if (_keysDown['e']) camera.position.y -= speed;
+      const moveDelta = new THREE.Vector3();
+      if (_keysDown['w']) moveDelta.addScaledVector(_fwdVec, speed);
+      if (_keysDown['s']) moveDelta.addScaledVector(_fwdVec, -speed);
+      if (_keysDown['a']) moveDelta.addScaledVector(_rightVec, -speed);
+      if (_keysDown['d']) moveDelta.addScaledVector(_rightVec, speed);
+      if (_keysDown['q']) moveDelta.y -= speed;
+      if (_keysDown['e']) moveDelta.y += speed;
+
+      camera.position.add(moveDelta);
       if (controls && controls.enabled) {
-        controls.target.addScaledVector(_fwdVec, (_keysDown['w'] ? speed : 0) - (_keysDown['s'] ? speed : 0));
+        controls.target.add(moveDelta);
+        controls.update();
       }
     } else if (isFlying) {
       const t = flyClock.getElapsedTime() * flySpeed;
@@ -1241,9 +1424,26 @@ function _startRenderLoop() {
     }
 
     renderer.render(scene, camera);
+
+    // Rolling delta-time FPS: EMA over per-frame deltas for smooth, responsive display
+    const frameMs = now - _fpsLastFrameTime;
+    _fpsLastFrameTime = now;
+    if (frameMs > 0 && frameMs < 500) {
+      const instantFps = 1000 / frameMs;
+      _rollingFps = _rollingFps * 0.88 + instantFps * 0.12;
+      _realRenderFps = Math.max(1, Math.min(240, Math.round(_rollingFps)));
+    }
   }
 
   tick(0);
+}
+
+let _realRenderFps = 60;
+let _rollingFps = 60;
+let _fpsLastFrameTime = performance.now();
+
+export function getRenderFps() {
+  return _realRenderFps;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1574,7 +1774,7 @@ function _onResize() {
 }
 
 function _onUserInteract() {
-  if (isWalkMode) return;
+  if (isWalkMode || isDroneMode) return;
   if (isFlying) {
     isFlying = false;
     controls.enabled = true;

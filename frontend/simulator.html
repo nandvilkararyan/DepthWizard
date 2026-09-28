@@ -19,10 +19,6 @@
   }
   </script>
 
-  <!-- CesiumJS for photorealistic globe terrain -->
-  <script src="https://cesium.com/downloads/cesiumjs/releases/1.119/Build/Cesium/Cesium.js"></script>
-  <link href="https://cesium.com/downloads/cesiumjs/releases/1.119/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
-
   <!-- Google Fonts & Material Symbols -->
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>
@@ -155,9 +151,6 @@
       <!-- Three.js Canvas -->
       <canvas id="threejs-canvas" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
 
-      <!-- CesiumJS Container (Hidden by default, toggled via engine switcher) -->
-      <div id="cesium-container" style="display:none;" class="w-full h-full absolute inset-0 z-0"></div>
-
       <!-- Ground Walk FPS Crosshair & Pointer Lock Hint -->
       <div id="walk-overlay" class="hidden pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center">
         <!-- Center Reticle -->
@@ -236,18 +229,12 @@
             Contour Isolines
           </button>
 
-          <!-- Engine Switcher -->
-          <div class="flex items-center gap-1 pl-2 border-l border-surface-container-high">
-            <button id="btn-engine-three" class="px-2.5 py-1 rounded bg-surface-container text-primary font-mono-data-sm text-mono-data-sm font-semibold border border-primary-container/30">Three.js</button>
-            <button id="btn-engine-cesium" class="px-2.5 py-1 rounded hover:bg-surface-container text-on-surface-variant font-mono-data-sm text-mono-data-sm">CesiumJS</button>
-          </div>
-
           <!-- Sunlight Time Slider Pill -->
           <div class="flex items-center gap-2 pl-3 ml-2 border-l border-surface-container-high">
             <span class="material-symbols-outlined text-secondary text-[16px]">wb_sunny</span>
             <span class="font-label-caps text-[9px] text-on-surface-variant whitespace-nowrap">SUN TIME</span>
             <input id="sun-slider" type="range" min="8" max="18" step="0.5" value="14.5" class="w-16 h-1 bg-surface-container-high rounded-lg cursor-pointer accent-secondary"/>
-            <span id="sun-label" class="font-mono-data-sm text-[11px] text-secondary font-medium w-16">14:30 EST</span>
+            <span id="sun-label" class="font-mono-data-sm text-[11px] text-secondary font-medium w-16">14:30 IST</span>
           </div>
         </div>
 
@@ -346,7 +333,7 @@
           <div class="w-full h-px bg-surface-container-high"></div>
 
           <!-- Point Cloud Mesh Overlay Controls -->
-          <div class="flex flex-col gap-1.5">
+          <div class="flex flex-col gap-2">
             <div class="flex items-center justify-between">
               <span class="font-label-caps text-[9px] text-secondary uppercase font-semibold">Mesh Overlay (GLB)</span>
               <label class="relative inline-flex items-center cursor-pointer">
@@ -354,17 +341,22 @@
                 <div class="w-9 h-5 bg-surface-container-high peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-primary-container after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-container/40"></div>
               </label>
             </div>
-            
+
             <div class="flex items-center justify-between text-[11px]">
-              <label class="flex items-center gap-1.5 cursor-pointer text-on-surface-variant hover:text-on-surface">
-                <input id="mesh-wireframe-toggle" type="checkbox" checked class="accent-primary-container cursor-pointer" />
-                <span>Wireframe</span>
+              <span class="text-on-surface-variant">Wireframe</span>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input id="mesh-wireframe-toggle" type="checkbox" checked class="sr-only peer"/>
+                <div class="w-9 h-5 bg-surface-container-high peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-primary-container after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-container/40"></div>
               </label>
+            </div>
+
+            <div class="flex items-center justify-between text-[11px]">
+              <span class="text-on-surface-variant">Opacity:</span>
               <div class="flex items-center gap-1">
                 <span id="mesh-opacity-val" class="font-mono-data-sm text-primary">10%</span>
               </div>
             </div>
-            <input id="mesh-opacity-slider" type="range" min="0" max="1" step="0.02" value="0.10" class="w-full accent-primary-container h-1 bg-surface-container rounded cursor-pointer" />
+            <input id="mesh-opacity-slider" type="range" min="0" max="1" step="0.01" value="0.10" class="w-full accent-primary-container h-1 bg-surface-container rounded cursor-pointer" />
           </div>
         </div>
 
@@ -386,6 +378,11 @@
             <span id="flood-val" class="font-mono-data-sm text-primary font-bold">0.0 m</span>
           </div>
           <input id="flood-slider" type="range" min="0" max="100" step="0.5" value="0" class="w-full accent-primary-container h-1 bg-surface-container rounded cursor-pointer" />
+          <div class="flex justify-between items-center text-[9px] text-on-surface-variant font-mono-data-sm -mt-0.5 px-0.5">
+            <span>Base</span>
+            <span class="text-primary font-semibold">Sim Cap: +50m</span>
+            <span>Peak</span>
+          </div>
 
           <div class="grid grid-cols-2 gap-2 mt-1">
             <div class="bg-surface-container p-1.5 rounded flex flex-col">

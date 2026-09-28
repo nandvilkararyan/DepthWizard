@@ -10,7 +10,7 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 
 # Model Identifiers and Registry
 DEFAULT_MODEL_ID = str(BASE_DIR / "app" / "depthwizard_model")
-DEFAULT_MODEL_KEY = "depthwizard_finetuned"
+DEFAULT_MODEL_KEY = "depth_anything_v2_large"
 
 SUPPORTED_MODELS = {
     "depth_anything_v2_small": {

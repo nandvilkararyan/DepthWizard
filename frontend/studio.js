@@ -84,8 +84,12 @@
 
   // Clean model descriptions with NO parameter counts
   const MODEL_METADATA = {
+    'depth_anything_v2_large': {
+      name: 'Depth Anything V2 - Large / High (Recommended)',
+      desc: 'High-capacity model capturing detailed geomorphic and structural terrain facets.'
+    },
     'depthwizard_finetuned': {
-      name: 'DepthWizard Fine-Tuned (Recommended)',
+      name: 'DepthWizard Fine-Tuned',
       desc: 'Fine-tuned for satellite & aerial terrain with active reflective-water suppression.'
     },
     'depth_anything_v2_small': {
@@ -95,10 +99,6 @@
     'depth_anything_v2_base': {
       name: 'Depth Anything V2 - Base',
       desc: 'Standard balanced model for high-resolution elevation mapping.'
-    },
-    'depth_anything_v2_large': {
-      name: 'Depth Anything V2 - Large / High',
-      desc: 'High-capacity model capturing detailed geomorphic and structural terrain facets.'
     }
   };
 
@@ -141,13 +141,19 @@
       const data = await resp.json();
       if (data && data.models && data.models.length > 0) {
         modelSelect.innerHTML = '';
-        data.models.forEach((m) => {
+        // Sort so depth_anything_v2_large appears first
+        const preferred = ['depth_anything_v2_large', 'depthwizard_finetuned', 'depth_anything_v2_base', 'depth_anything_v2_small'];
+        const sorted = [...data.models].sort((a, b) => {
+          const ai = preferred.indexOf(a.key);
+          const bi = preferred.indexOf(b.key);
+          return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+        });
+        sorted.forEach((m) => {
           const opt = document.createElement('option');
           opt.value = m.key;
-          // Format cleanly without parameter text
           const meta = MODEL_METADATA[m.key];
           opt.textContent = meta ? meta.name : m.name.replace(/\(HF\)/g, '').trim();
-          if (m.key === data.current_key || m.key === 'depthwizard_finetuned') {
+          if (m.key === 'depth_anything_v2_large' || m.key === data.current_key) {
             opt.selected = true;
           }
           modelSelect.appendChild(opt);
@@ -444,22 +450,10 @@
       reticleInspector.style.left = Math.min(relX, rect.width - 150) + 'px';
       reticleInspector.style.top = Math.min(relY, rect.height - 70) + 'px';
 
-      if (reticleCoords) {
-        reticleCoords.textContent = `X: ${Math.round(relX * 2)} Y: ${Math.round(relY * 2)}`;
-      }
-
-      let approxHeight = '0.0';
-      if (activeTask && activeTask.metadata && activeTask.metadata.elevation_metrics) {
-        const em = activeTask.metadata.elevation_metrics;
-        const normY = 1.0 - (relY / rect.height);
-        approxHeight = (em.min_elevation_meters + normY * (em.max_elevation_meters - em.min_elevation_meters)).toFixed(1);
-      } else {
-        const normY = 1.0 - (relY / rect.height);
-        approxHeight = (normY * 85.0).toFixed(1);
-      }
-
-      if (reticleHeight) reticleHeight.textContent = `Height: +${approxHeight}m`;
-      if (hoverProbeText) hoverProbeText.textContent = `Elevation: +${approxHeight}m`;
+      const px = Math.round(relX * 2);
+      const py = Math.round(relY * 2);
+      if (reticleCoords) reticleCoords.textContent = `X: ${px} Y: ${py}`;
+      if (hoverProbeText) hoverProbeText.textContent = `X: ${px} Y: ${py}`;
     }
   }
 
