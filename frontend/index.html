@@ -220,10 +220,10 @@
       <section class="h-full flex flex-col gap-2 min-w-0 overflow-hidden">
 
         <!-- Top Toolbar -->
-        <div class="bg-surface-container-low rounded-xl px-3 py-1.5 shadow-sm border border-surface-container-high/60 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div class="bg-surface-container-low rounded-xl px-3 py-1.5 shadow-sm border border-surface-container-high/60 flex items-center gap-2 shrink-0">
           
-          <!-- Mode Toggles: Split vs Side-by-Side Dual -->
-          <div class="flex items-center bg-surface-container-lowest p-0.5 rounded-lg gap-1 border border-surface-container-high/40">
+          <!-- LEFT: View mode toggles — pinned, never shifts -->
+          <div class="flex items-center bg-surface-container-lowest p-0.5 rounded-lg gap-1 border border-surface-container-high/40 flex-none">
             <button id="btn-split-mode" class="px-2.5 py-1 rounded bg-surface-container text-primary-fixed-dim font-mono text-xs font-semibold flex items-center gap-1 transition-all">
               <span class="material-symbols-outlined text-[15px]">splitscreen_left</span>
               <span>Interactive Split</span>
@@ -234,29 +234,30 @@
             </button>
           </div>
 
-          <!-- Color Ramp Selector -->
-          <div class="flex items-center gap-1.5">
-            <span class="font-mono text-[10px] text-on-surface-variant uppercase">Ramp</span>
-            <div class="flex items-center gap-0.5 bg-surface-container-lowest p-0.5 rounded-lg border border-surface-container-high/40">
-              <button data-ramp="turbo" class="px-2 py-0.5 rounded bg-surface-container text-primary font-mono text-xs font-medium">Turbo</button>
-              <button data-ramp="viridis" class="px-2 py-0.5 rounded hover:bg-surface-container text-on-surface-variant font-mono text-xs">Viridis</button>
-              <button data-ramp="magma" class="px-2 py-0.5 rounded hover:bg-surface-container text-on-surface-variant font-mono text-xs">Magma</button>
-              <button data-ramp="raw" class="px-2 py-0.5 rounded hover:bg-surface-container text-on-surface-variant font-mono text-xs">Raw Mono</button>
+          <!-- CENTER: Ramp + Opacity — grows to fill and self-centers -->
+          <div class="flex-1 flex items-center justify-center gap-3">
+            <!-- Color Ramp Selector -->
+            <div class="flex items-center gap-1.5">
+              <span class="font-mono text-[10px] text-on-surface-variant uppercase">Ramp</span>
+              <div class="flex items-center gap-0.5 bg-surface-container-lowest p-0.5 rounded-lg border border-surface-container-high/40">
+                <button data-ramp="turbo" class="px-2 py-0.5 rounded bg-surface-container text-primary font-mono text-xs font-medium">Turbo</button>
+                <button data-ramp="raw" class="px-2 py-0.5 rounded hover:bg-surface-container text-on-surface-variant font-mono text-xs">Raw Mono</button>
+              </div>
+            </div>
+
+            <!-- Heatmap Opacity Slider -->
+            <div class="flex items-center gap-2 bg-surface-container-lowest px-2.5 py-1 rounded-lg border border-surface-container-high/40">
+              <span class="material-symbols-outlined text-[15px] text-primary-fixed-dim">opacity</span>
+              <span class="font-mono text-[10px] text-on-surface-variant uppercase">Opacity</span>
+              <input id="opacity-slider" type="range" min="10" max="100" value="80" class="w-16 accent-primary-container h-1 bg-surface-container rounded cursor-pointer" />
+              <span id="opacity-val" class="font-mono text-xs text-primary w-7 text-right">80%</span>
             </div>
           </div>
 
-          <!-- Heatmap Opacity Slider -->
-          <div class="flex items-center gap-2 bg-surface-container-lowest px-2.5 py-1 rounded-lg border border-surface-container-high/40">
-            <span class="material-symbols-outlined text-[15px] text-primary-fixed-dim">opacity</span>
-            <span class="font-mono text-[10px] text-on-surface-variant uppercase">Opacity</span>
-            <input id="opacity-slider" type="range" min="10" max="100" value="80" class="w-16 accent-primary-container h-1 bg-surface-container rounded cursor-pointer" />
-            <span id="opacity-val" class="font-mono text-xs text-primary w-7 text-right">80%</span>
-          </div>
-
-          <!-- Live Elevation Probe Readout -->
-          <div id="reticle-hover-readout" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-container text-secondary font-mono text-xs border border-secondary/20">
-            <span class="material-symbols-outlined text-[15px]">gps_fixed</span>
-            <span id="hover-probe-text">Hover image for elevation</span>
+          <!-- RIGHT: Coordinate probe — fixed width, never causes layout shift -->
+          <div id="reticle-hover-readout" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-container text-secondary font-mono text-xs border border-secondary/20 flex-none w-44 overflow-hidden">
+            <span class="material-symbols-outlined text-[15px] shrink-0">gps_fixed</span>
+            <span id="hover-probe-text" class="whitespace-nowrap">Hover for X / Y</span>
           </div>
         </div>
 
@@ -345,10 +346,8 @@
               <div class="w-1.5 h-1.5 rounded-full bg-primary-container"></div>
             </div>
             
-            <div class="bg-surface-container-lowest/95 backdrop-blur-md px-2 py-1 rounded shadow-xl flex flex-col gap-0.5 -mt-1 ml-3 border border-surface-container-high/50 text-[10px] font-mono">
-              <div class="flex items-center gap-1 text-primary font-bold">
-                <span id="reticle-coords">X: -- Y: --</span>
-              </div>
+            <div id="reticle-bubble" class="bg-surface-container-lowest/95 backdrop-blur-md px-2 py-1 rounded shadow-xl flex flex-row items-center gap-1 ml-3 border border-surface-container-high/50 text-[10px] font-mono whitespace-nowrap text-primary font-bold">
+              <span id="reticle-coords">X: -- Y: --</span>
             </div>
           </div>
 

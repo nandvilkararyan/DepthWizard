@@ -247,7 +247,7 @@
       viewportCanvas.addEventListener('mousemove', onViewportHover);
       viewportCanvas.addEventListener('mouseleave', () => {
         if (reticleInspector) reticleInspector.style.display = 'none';
-        if (hoverProbeText) hoverProbeText.textContent = 'Hover image for elevation';
+        if (hoverProbeText) hoverProbeText.textContent = 'Hover for X / Y';
       });
       viewportCanvas.addEventListener('mouseenter', () => {
         if (reticleInspector && (selectedFile || activeTask)) reticleInspector.style.display = 'flex';
@@ -447,8 +447,30 @@
     const relY = e.clientY - rect.top;
 
     if (relX >= 0 && relX <= rect.width && relY >= 0 && relY <= rect.height) {
-      reticleInspector.style.left = Math.min(relX, rect.width - 150) + 'px';
-      reticleInspector.style.top = Math.min(relY, rect.height - 70) + 'px';
+      // Crosshair dot always follows the exact cursor — no Y clamping
+      // Nudge left only if too close to the right edge
+      const BUBBLE_W = 110; // approx bubble width in px
+      const RIGHT_MARGIN = 16;
+      const tipX = Math.min(relX, rect.width - BUBBLE_W - RIGHT_MARGIN);
+      reticleInspector.style.left = tipX + 'px';
+      reticleInspector.style.top  = relY + 'px';
+
+      // For the bottom ~60px of the panel: flip bubble to appear ABOVE the cursor.
+      // For everywhere else: bubble stays below-right (default flow).
+      // Use CSS transform on the bubble only — crosshair dot stays unaffected.
+      const bubble = document.getElementById('reticle-bubble');
+      const FLIP_ZONE = 60; // px from bottom edge where flip activates
+      const nearBottom = relY > rect.height - FLIP_ZONE;
+      if (bubble) {
+        if (nearBottom) {
+          // Translate bubble up by its own height + gap to sit above the cursor
+          bubble.style.transform = 'translateY(calc(-100% - 20px))';
+          bubble.style.marginLeft = '12px';
+        } else {
+          bubble.style.transform = '';
+          bubble.style.marginLeft = '';
+        }
+      }
 
       const px = Math.round(relX * 2);
       const py = Math.round(relY * 2);
